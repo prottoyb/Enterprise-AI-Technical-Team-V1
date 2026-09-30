@@ -1,0 +1,5 @@
+node_modules/
+.engineering/
+.claude/settings.local.json
+.claude/worktrees/
+*.log

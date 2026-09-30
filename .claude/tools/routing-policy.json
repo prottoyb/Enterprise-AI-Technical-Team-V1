@@ -1,0 +1,500 @@
+{
+  "$comment": "Single source of truth for task routing. Read by route.mjs, task.mjs check, the validator and the docs table (docs/risk-and-approvals.md is generated from this file). Changing it is a governance change.",
+  "version": 1,
+  "risk_order": [
+    "LOW",
+    "STANDARD",
+    "HIGH"
+  ],
+  "phases": [
+    "diagnose",
+    "design",
+    "implement",
+    "verify",
+    "review"
+  ],
+  "agents": {
+    "investigator": {
+      "phases": [
+        "diagnose"
+      ],
+      "purpose": "Root-cause analysis when the cause is unknown or uncertain; reproduces, traces, proves hypotheses."
+    },
+    "architect": {
+      "phases": [
+        "design"
+      ],
+      "purpose": "System boundaries, shared contracts, storage architecture; writes ADRs."
+    },
+    "database-engineer": {
+      "phases": [
+        "design"
+      ],
+      "purpose": "Schema, migration and data-change safety: locking, backfill, reversibility, validation."
+    },
+    "platform-engineer": {
+      "phases": [
+        "design"
+      ],
+      "purpose": "CI/CD, build, deployment, infrastructure and runtime configuration: diagnoses pipeline/deployment failures and plans infrastructure changes."
+    },
+    "product-designer": {
+      "phases": [
+        "design",
+        "review"
+      ],
+      "purpose": "UX/UI specification for significant interface work and review of the rendered result."
+    },
+    "software-engineer": {
+      "phases": [
+        "implement"
+      ],
+      "purpose": "Implements the smallest correct change with tests."
+    },
+    "verifier": {
+      "phases": [
+        "verify"
+      ],
+      "purpose": "Independently verifies acceptance criteria and regressions; proves regression tests fail before and pass after."
+    },
+    "security-engineer": {
+      "phases": [
+        "review"
+      ],
+      "purpose": "Threat-focused review of security-sensitive changes; verifies dependency-vulnerability exceptions."
+    },
+    "senior-reviewer": {
+      "phases": [
+        "review"
+      ],
+      "purpose": "Independent final review of the diff, root cause and evidence."
+    }
+  },
+  "risk_levels": {
+    "LOW": {
+      "implementer": "lead",
+      "required": [],
+      "testing": "checks",
+      "ledger": false,
+      "rollback_plan": false,
+      "implementer_model": null
+    },
+    "STANDARD": {
+      "implementer": "software-engineer",
+      "required": [
+        "software-engineer",
+        "verifier"
+      ],
+      "testing": "targeted",
+      "ledger": true,
+      "rollback_plan": false,
+      "implementer_model": null
+    },
+    "HIGH": {
+      "implementer": "software-engineer",
+      "required": [
+        "software-engineer",
+        "verifier",
+        "senior-reviewer"
+      ],
+      "testing": "full",
+      "ledger": true,
+      "rollback_plan": true,
+      "implementer_model": "opus"
+    }
+  },
+  "testing_levels": {
+    "checks": "Run the deterministic checks that cover the touched files (lint, format, build, link check). No new tests expected.",
+    "targeted": "Run tests for the affected area plus new or updated tests for changed behaviour; a bug fix adds a regression test proven to fail before and pass after; run the full suite once before completion where feasible.",
+    "full": "Full test suite, lint, type check and build, plus the domain checks each flag adds; rollback path verified or explicitly stated as not verifiable."
+  },
+  "flags": {
+    "security": {
+      "description": "Authentication, authorisation, sessions, permissions, secrets, cryptography, untrusted input reaching a database/shell/filesystem/template, uploads, webhooks, personal or payment data, security controls, dependency vulnerabilities.",
+      "min_risk": "HIGH",
+      "adds": [
+        "security-engineer"
+      ],
+      "senior_review": true,
+      "testing": [
+        "negative and abuse-path tests for the affected control (unauthorised, invalid, missing, oversized input)"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(auth\\w*|login|logout|sign[- ]?in|password|session|jwt|oauth|sso|saml|permissions?|rbac|access control|csrf|xss|sql injection|injection|secrets?|credentials?|api[- ]key|encrypt\\w*|decrypt\\w*|hash(ing)? passwords?|webhooks?|file upload|uploads?|vulnerab\\w*|cve-\\d+|pii|personal data|gdpr|payments?|credit card|billing)\\b",
+        "paths": "(^|/)(auth|authn|authz|authentication|authori[sz]ation|oauth|login|sessions?|permissions?|rbac|acl|security|crypto|guards?|policies|webhooks?|uploads?|payments?|billing|secrets?)(/|\\.|_|-|$)"
+      }
+    },
+    "data-schema": {
+      "description": "Database schema changes, migrations, or changes to how data is stored.",
+      "min_risk": "HIGH",
+      "adds": [
+        "database-engineer"
+      ],
+      "senior_review": true,
+      "testing": [
+        "apply the migration and its rollback on a disposable database",
+        "verify existing data after migration"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(migrations?|database schema|schema change|alter table|add (a )?column|new column|drop column|rename column|foreign key|add (an )?index|new table)\\b",
+        "paths": "((^|/)migrations?/|(^|/)db/migrate/|(^|/)alembic/|(^|/)flyway/|(^|/)liquibase/|schema\\.prisma$|(^|/)drizzle/|\\.sql$)"
+      },
+      "rollback_plan": true
+    },
+    "data-destructive": {
+      "description": "Deleting, overwriting or irreversibly transforming stored data (drop, truncate, purge, destructive backfill).",
+      "min_risk": "HIGH",
+      "adds": [
+        "database-engineer"
+      ],
+      "senior_review": true,
+      "testing": [
+        "backup/restore or reversibility path demonstrated on a disposable copy"
+      ],
+      "approvals": [
+        {
+          "action": "destructive-data",
+          "when": "before executing the destructive operation against any non-disposable environment"
+        }
+      ],
+      "detect": {
+        "text": "\\b(drop (table|column|database)|truncate|purge|wipe|delete (all|old|existing) (records|rows|data)|irreversibl\\w*|destructive)\\b",
+        "paths": null
+      },
+      "rollback_plan": true
+    },
+    "architecture": {
+      "description": "Changes system boundaries, core patterns, service responsibilities, storage architecture or shared contracts; introduces a service, datastore or framework.",
+      "min_risk": "HIGH",
+      "adds": [
+        "architect"
+      ],
+      "senior_review": true,
+      "testing": [
+        "contract or integration tests across the changed boundary"
+      ],
+      "approvals": [
+        {
+          "action": "architecture-decision",
+          "when": "before implementation that depends on the proposed ADR"
+        }
+      ],
+      "detect": {
+        "text": "\\b(re-?architect\\w*|architecture|new (micro)?service|split (the )?(monolith|service)|module boundar\\w*|message (queue|bus)|event bus|replace the (orm|database|framework)|shared contract|multi-?tenan\\w*)\\b",
+        "paths": null
+      }
+    },
+    "public-contract-breaking": {
+      "description": "A breaking change to a public API, event schema, SDK, CLI or file format that others consume.",
+      "min_risk": "HIGH",
+      "adds": [
+        "architect"
+      ],
+      "senior_review": true,
+      "testing": [
+        "contract tests proving the new behaviour and the documented migration path"
+      ],
+      "approvals": [
+        {
+          "action": "breaking-change",
+          "when": "before merge or release"
+        }
+      ],
+      "detect": {
+        "text": "\\b(breaking change|remove (the )?(endpoint|field|parameter)|rename (the )?(endpoint|field)|deprecate\\w*|v\\d+ api)\\b",
+        "paths": null
+      }
+    },
+    "infrastructure": {
+      "description": "Build, container, deployment, infrastructure-as-code or runtime configuration.",
+      "min_risk": "STANDARD",
+      "adds": [
+        "platform-engineer"
+      ],
+      "senior_review": true,
+      "testing": [
+        "validate/plan/dry-run of the changed configuration (e.g. terraform plan, docker build, helm template)"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(deploy(ment)?s?|infrastructure|terraform|kubernetes|k8s|helm|docker(file)?|container|load balancer|dns|tls certificate|ssl certificate|cdn|environment variables?)\\b",
+        "paths": "((^|/)dockerfile|docker-compose[^/]*\\.ya?ml$|\\.tf$|\\.tfvars$|(^|/)(helm|charts|k8s|kubernetes|infra|infrastructure|terraform|deploy|ansible)/|serverless\\.ya?ml$|(^|/)cdk\\.json$|(^|/)pulumi\\.|(^|/)procfile$|fly\\.toml$|vercel\\.json$|netlify\\.toml$|(^|/)app\\.ya?ml$)"
+      },
+      "rollback_plan": true,
+      "diagnoses": true
+    },
+    "ci": {
+      "description": "CI/CD pipeline definitions or CI-only failures.",
+      "min_risk": "STANDARD",
+      "adds": [
+        "platform-engineer"
+      ],
+      "senior_review": false,
+      "testing": [
+        "the pipeline (or its local equivalent) runs green on the branch"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(ci|ci/cd|pipeline|github actions|gitlab ci|jenkins|build (fails|failing|broken) (on|in) ci)\\b",
+        "paths": "((^|/)\\.github/workflows/|(^|/)\\.gitlab-ci\\.ya?ml$|(^|/)jenkinsfile$|(^|/)azure-pipelines\\.ya?ml$|(^|/)\\.circleci/|(^|/)bitbucket-pipelines\\.ya?ml$|(^|/)\\.buildkite/)"
+      },
+      "diagnoses": true
+    },
+    "production": {
+      "description": "The task requires a production deployment or changes production configuration or data.",
+      "min_risk": "HIGH",
+      "adds": [],
+      "senior_review": true,
+      "testing": [
+        "smoke test plan for after deployment",
+        "rollback procedure written and checked"
+      ],
+      "approvals": [
+        {
+          "action": "deploy-production",
+          "when": "before any production deployment or production configuration change"
+        }
+      ],
+      "detect": {
+        "text": "\\b(production|prod|live (site|environment|system)|outage|incident|sev ?[12]|p[01])\\b",
+        "paths": "(^|/)(prod|production)(/|\\.|_|-)"
+      },
+      "rollback_plan": true
+    },
+    "hotfix": {
+      "description": "Urgent fix for a live problem; minimal change with a follow-up for anything deferred.",
+      "min_risk": "STANDARD",
+      "adds": [],
+      "senior_review": true,
+      "testing": [
+        "targeted regression test plus smoke test of the affected journey"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(hotfix|hot-fix|emergency|urgent fix|asap)\\b",
+        "paths": null
+      },
+      "rollback_plan": true
+    },
+    "ui-significant": {
+      "description": "A new screen or flow, a redesign, or a change to navigation or the design system.",
+      "min_risk": "STANDARD",
+      "adds": [
+        "product-designer"
+      ],
+      "senior_review": true,
+      "testing": [
+        "rendered review of the changed screens at mobile and desktop widths (ui-review skill)"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(redesign\\w*|new (screen|page|flow|wizard)|user flow|onboarding flow|ux|user experience|look and feel|design system|navigation overhaul)\\b",
+        "paths": null
+      }
+    },
+    "ui": {
+      "description": "Any user-visible interface change.",
+      "min_risk": null,
+      "adds": [],
+      "senior_review": false,
+      "testing": [
+        "rendered check of the changed screen (screenshot or browser), or report the visual result as Not verified"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(button|screen|page|modal|dialog|form|layout|css|style|styling|responsive|mobile view|ui)\\b",
+        "paths": "(\\.(css|scss|sass|less|vue|svelte|jsx|tsx|html|erb|cshtml|razor|xaml|storyboard|xib)$|(^|/)(components|pages|views|screens|templates|styles|layouts)/)"
+      }
+    },
+    "api-change": {
+      "description": "Adds or changes an API endpoint, handler, message or contract without breaking consumers.",
+      "min_risk": "STANDARD",
+      "adds": [],
+      "senior_review": true,
+      "testing": [
+        "API/contract tests for the new or changed behaviour, including error responses"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(endpoints?|api|graphql|grpc|rest|route handler|request body|response (body|payload|format)|webservice)\\b",
+        "paths": "((^|/)(routes?|controllers?|handlers?|api|endpoints|resolvers)/|openapi\\.(ya?ml|json)$|swagger\\.(ya?ml|json)$|\\.proto$|\\.graphql$)"
+      }
+    },
+    "dependency": {
+      "description": "Adds, removes or upgrades a dependency (minor/patch).",
+      "min_risk": "STANDARD",
+      "adds": [],
+      "senior_review": true,
+      "testing": [
+        "ecosystem vulnerability scan (npm audit, pip-audit, cargo audit, …)",
+        "full test suite"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(upgrade|bump|dependenc(y|ies)|library version|update (the )?(package|library|sdk))\\b",
+        "paths": "((^|/)package\\.json$|package-lock\\.json$|yarn\\.lock$|pnpm-lock\\.yaml$|bun\\.lockb?$|requirements[^/]*\\.txt$|pyproject\\.toml$|poetry\\.lock$|(^|/)pipfile(\\.lock)?$|(^|/)go\\.(mod|sum)$|(^|/)cargo\\.(toml|lock)$|(^|/)pom\\.xml$|build\\.gradle(\\.kts)?$|\\.csproj$|packages\\.config$|(^|/)gemfile(\\.lock)?$|(^|/)composer\\.(json|lock)$|pubspec\\.(yaml|lock)$|(^|/)podfile(\\.lock)?$)"
+      }
+    },
+    "dependency-major": {
+      "description": "A major-version or framework upgrade with breaking changes in the dependency.",
+      "min_risk": "HIGH",
+      "adds": [],
+      "senior_review": true,
+      "testing": [
+        "the dependency's migration guide checked item by item",
+        "full suite, build and smoke test"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(major (version|upgrade)|framework upgrade|upgrade (react|angular|vue|next(\\.js)?|django|flask|rails|spring( boot)?|express|laravel|node(\\.js)?|python|java|\\.net|dotnet) (from|to))\\b",
+        "paths": null
+      }
+    },
+    "performance": {
+      "description": "A performance problem or regression, or a change made for performance.",
+      "min_risk": "STANDARD",
+      "adds": [
+        "investigator"
+      ],
+      "senior_review": true,
+      "testing": [
+        "before/after measurement with the same method, data and environment"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(slow(er|ly|ness)?|performance|latency|timeouts?|memory leak|high cpu|throughput|n\\+1|takes too long)\\b",
+        "paths": null
+      }
+    },
+    "flaky-test": {
+      "description": "A test that passes and fails without code changes.",
+      "min_risk": "STANDARD",
+      "adds": [
+        "investigator"
+      ],
+      "senior_review": false,
+      "testing": [
+        "repeated runs before and after the fix (at least 20, or the count that reproduced it)"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(flaky|flakes?|intermittent(ly)?|sometimes fails|randomly fails|non-?deterministic)\\b",
+        "paths": null
+      }
+    },
+    "client-specific": {
+      "description": "Behaviour required for one client, tenant or deployment rather than all users.",
+      "min_risk": "STANDARD",
+      "adds": [],
+      "senior_review": true,
+      "testing": [
+        "tests proving the client-specific behaviour and that default behaviour for other clients is unchanged"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": "\\b(client-specific|customer-specific|for (client|customer|tenant) \\w+|white-?label\\w*|per-(client|tenant|customer)|customi[sz]ation for)\\b",
+        "paths": null
+      }
+    },
+    "multi-module": {
+      "description": "The change spans several modules or shared code others depend on.",
+      "min_risk": "STANDARD",
+      "adds": [],
+      "senior_review": true,
+      "testing": [
+        "tests for each affected module's callers"
+      ],
+      "approvals": [],
+      "detect": {
+        "text": null,
+        "paths": null
+      }
+    }
+  },
+  "uncertainty": {
+    "root-cause-unknown": {
+      "description": "The cause of a defect is not yet established. The investigator diagnoses it, unless a flag already routes a specialist who diagnoses that domain (diagnoses: true).",
+      "adds": [
+        "investigator"
+      ],
+      "senior_review": true,
+      "gate": null
+    },
+    "requirements-ambiguous": {
+      "description": "Different reasonable interpretations would produce materially different results.",
+      "adds": [],
+      "senior_review": false,
+      "gate": "clarify-requirements"
+    },
+    "no-test-coverage": {
+      "description": "The affected area has no tests to detect a regression.",
+      "adds": [],
+      "senior_review": false,
+      "gate": "characterisation-tests-first"
+    }
+  },
+  "modes": {
+    "change": {
+      "description": "Change the system: fix, feature, refactor, configuration (default).",
+      "drop": [],
+      "add": [],
+      "regression_proof": true
+    },
+    "review": {
+      "description": "Review an existing diff, branch or PR; no implementation.",
+      "drop": [
+        "software-engineer",
+        "verifier",
+        "investigator"
+      ],
+      "add": [
+        "senior-reviewer"
+      ],
+      "regression_proof": false
+    },
+    "investigate": {
+      "description": "Diagnose and report; no fix requested.",
+      "drop": [
+        "software-engineer",
+        "verifier",
+        "senior-reviewer",
+        "product-designer"
+      ],
+      "add": [
+        "investigator"
+      ],
+      "regression_proof": false
+    }
+  },
+  "multi_module_threshold": {
+    "top_level_dirs": 3,
+    "files": 15
+  },
+  "always_gated": [
+    {
+      "action": "push",
+      "when": "before pushing the task branch or opening a PR, unless the task request pre-authorises it"
+    },
+    {
+      "action": "merge",
+      "when": "before merging, releasing or tagging (live approval only)"
+    }
+  ],
+  "approval_actions": {
+    "push": "Push a branch or open a pull request on a remote.",
+    "merge": "Merge, release or tag.",
+    "deploy-production": "Deploy to, or change configuration of, production.",
+    "destructive-data": "Execute an operation that deletes or irreversibly changes non-disposable data.",
+    "irreversible-infra": "Delete or de-provision infrastructure, or rewrite shared git history.",
+    "credential-operation": "Create, rotate, revoke or move secrets and credentials.",
+    "security-control-weakening": "Disable or weaken an authentication, authorisation or other security control, even temporarily.",
+    "external-service-change": "Change a third-party service, paid resource or shared environment outside the repository.",
+    "breaking-change": "Merge or release a breaking change to a public contract.",
+    "architecture-decision": "Commit to an ADR with substantial long-term consequences.",
+    "scope-expansion": "Expand work materially beyond the task request.",
+    "outside-repository": "Act on files or systems outside the authorised repository.",
+    "vulnerable-dependency-exception": "Introduce or keep a dependency with a known vulnerability."
+  }
+}

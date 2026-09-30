@@ -1,0 +1,170 @@
+{
+  "$comment": "Routing evaluation scenarios. `lead` is the classification the Engineering Lead is expected to make from the request; `expect` is what the policy must then produce. `required` is compared as an exact set, so an unnecessary agent fails the scenario just like a missing one. Run: node evals/evaluate.mjs",
+  "scenarios": [
+    {
+      "id": "S01", "title": "Trivial documentation correction",
+      "request": "Fix the typo 'recieve' in the installation section of README.md.",
+      "lead": { "risk": "LOW", "flags": [], "uncertainty": [], "paths": ["README.md"] },
+      "expect": { "risk": "LOW", "required": [], "testing": "checks", "approvals": [], "gates": [], "implementer": "lead" }
+    },
+    {
+      "id": "S02", "title": "Simple frontend bug (cause visible)",
+      "request": "The Cancel button on the profile form submits the form instead of closing it.",
+      "lead": { "risk": "STANDARD", "flags": ["ui"], "uncertainty": [], "paths": ["src/components/ProfileForm.tsx"] },
+      "expect": { "risk": "STANDARD", "required": ["software-engineer", "verifier"], "testing": "targeted", "approvals": [], "gates": [],
+        "forbidden": ["product-designer", "senior-reviewer", "investigator", "architect", "security-engineer"] }
+    },
+    {
+      "id": "S03", "title": "Difficult backend bug, root cause unknown",
+      "request": "Monthly report totals are occasionally off for some users. We can't see a pattern.",
+      "lead": { "risk": "STANDARD", "flags": [], "uncertainty": ["root-cause-unknown"], "paths": ["src/services/reports/monthly.py"] },
+      "expect": { "risk": "STANDARD", "required": ["investigator", "software-engineer", "verifier", "senior-reviewer"], "testing": "targeted", "approvals": [], "gates": [] }
+    },
+    {
+      "id": "S04", "title": "API feature",
+      "request": "Add GET /api/projects/{id}/export that returns the project's tasks as CSV, using the existing auth middleware.",
+      "lead": { "risk": "STANDARD", "flags": ["api-change"], "uncertainty": [], "paths": ["src/routes/projects.ts", "src/services/export.ts", "tests/routes/projects.test.ts"] },
+      "expect": { "risk": "STANDARD", "required": ["software-engineer", "verifier", "senior-reviewer"], "testing": "targeted", "approvals": [], "gates": [],
+        "forbidden": ["architect", "database-engineer", "platform-engineer", "product-designer", "investigator"] }
+    },
+    {
+      "id": "S05", "title": "Database schema migration with destructive step",
+      "request": "Split users.full_name into first_name and last_name, backfill existing rows, then drop full_name.",
+      "lead": { "risk": "STANDARD", "flags": ["data-schema", "data-destructive"], "uncertainty": [], "paths": ["migrations/20261001_split_name.sql", "src/models/user.ts"] },
+      "expect": { "risk": "HIGH", "required": ["database-engineer", "software-engineer", "verifier", "senior-reviewer"], "testing": "full", "approvals": ["destructive-data"], "gates": [], "rollback_plan": true }
+    },
+    {
+      "id": "S06", "title": "Authentication vulnerability",
+      "request": "Password reset tokens never expire and are stored in plain text. Fix it.",
+      "lead": { "risk": "STANDARD", "flags": ["security"], "uncertainty": [], "paths": ["src/auth/passwordReset.ts", "src/db/resetTokens.ts"] },
+      "expect": { "risk": "HIGH", "required": ["software-engineer", "verifier", "security-engineer", "senior-reviewer"], "testing": "full", "approvals": [], "gates": [],
+        "implementer_model": "opus" }
+    },
+    {
+      "id": "S07", "title": "UI redesign",
+      "request": "Redesign the dashboard: new layout, clearer navigation and proper empty states.",
+      "lead": { "risk": "STANDARD", "flags": ["ui-significant", "ui"], "uncertainty": [], "paths": ["src/pages/Dashboard.tsx", "src/components/Nav.tsx", "src/styles/tokens.css"] },
+      "expect": { "risk": "STANDARD", "required": ["product-designer", "software-engineer", "verifier", "senior-reviewer"], "testing": "targeted", "approvals": [], "gates": [],
+        "forbidden": ["architect", "security-engineer", "database-engineer"] }
+    },
+    {
+      "id": "S08", "title": "Major dependency upgrade",
+      "request": "Upgrade Express from 4 to 5.",
+      "lead": { "risk": "STANDARD", "flags": ["dependency", "dependency-major"], "uncertainty": [], "paths": ["package.json", "package-lock.json", "src/server.ts"] },
+      "expect": { "risk": "HIGH", "required": ["software-engineer", "verifier", "senior-reviewer"], "testing": "full", "approvals": [], "gates": [],
+        "forbidden": ["architect", "security-engineer"] }
+    },
+    {
+      "id": "S09", "title": "Production deployment configuration issue",
+      "request": "Since yesterday's deploy the API containers crash-loop in production with 'missing DATABASE_URL'.",
+      "lead": { "risk": "STANDARD", "flags": ["infrastructure", "production"], "uncertainty": ["root-cause-unknown"], "paths": ["deploy/k8s/api-deployment.yaml", "Dockerfile"] },
+      "expect": { "risk": "HIGH", "required": ["platform-engineer", "software-engineer", "verifier", "senior-reviewer"], "testing": "full", "approvals": ["deploy-production"], "forbidden": ["investigator"], "gates": [], "rollback_plan": true }
+    },
+    {
+      "id": "S10", "title": "Performance regression",
+      "request": "Search p95 latency went from 200 ms to 2 s after the last release.",
+      "lead": { "risk": "STANDARD", "flags": ["performance"], "uncertainty": ["root-cause-unknown"], "paths": ["src/services/search.ts"] },
+      "expect": { "risk": "STANDARD", "required": ["investigator", "software-engineer", "verifier", "senior-reviewer"], "testing": "targeted", "approvals": [], "gates": [] }
+    },
+    {
+      "id": "S11", "title": "Flaky test",
+      "request": "tests/checkout.test.ts fails about one in ten CI runs.",
+      "lead": { "risk": "STANDARD", "flags": ["flaky-test"], "uncertainty": [], "paths": ["tests/checkout.test.ts"] },
+      "expect": { "risk": "STANDARD", "required": ["investigator", "software-engineer", "verifier"], "testing": "targeted", "approvals": [], "gates": [],
+        "forbidden": ["platform-engineer", "senior-reviewer"], "suggested_includes": ["ci"] }
+    },
+    {
+      "id": "S12", "title": "Client-specific customisation",
+      "request": "Acme needs their PO number printed on invoices; every other client must stay unchanged.",
+      "lead": { "risk": "STANDARD", "flags": ["client-specific"], "uncertainty": [], "paths": ["src/invoices/render.ts", "src/config/tenants.ts"] },
+      "expect": { "risk": "STANDARD", "required": ["software-engineer", "verifier", "senior-reviewer"], "testing": "targeted", "approvals": [], "gates": [],
+        "forbidden": ["architect"] }
+    },
+    {
+      "id": "S13", "title": "Major architectural change",
+      "request": "Move notification sending out of the monolith into a separate worker service that consumes a queue.",
+      "lead": { "risk": "STANDARD", "flags": ["architecture", "infrastructure"], "uncertainty": [], "paths": [] },
+      "expect": { "risk": "HIGH", "required": ["architect", "platform-engineer", "software-engineer", "verifier", "senior-reviewer"], "testing": "full", "approvals": ["architecture-decision"], "gates": [] }
+    },
+    {
+      "id": "S14", "title": "Ambiguous requirement",
+      "request": "Users should be able to archive projects.",
+      "lead": { "risk": "STANDARD", "flags": ["api-change", "ui"], "uncertainty": ["requirements-ambiguous"], "paths": [] },
+      "expect": { "risk": "STANDARD", "required": ["software-engineer", "verifier", "senior-reviewer"], "testing": "targeted", "approvals": [], "gates": ["clarify-requirements"] }
+    },
+    {
+      "id": "S15", "title": "Tests fail after implementation",
+      "request": "The Cancel button on the profile form submits the form (the verifier's run then fails twice, then a third time).",
+      "lead": { "risk": "STANDARD", "flags": ["ui"], "uncertainty": [], "paths": ["src/components/ProfileForm.tsx"] },
+      "expect": { "risk": "STANDARD", "required": ["software-engineer", "verifier"], "testing": "targeted", "approvals": [], "gates": [],
+        "retry": { "1": "correct", "2": "correct", "3": "escalate", "4": "stop" } }
+    },
+    {
+      "id": "S16", "title": "Plain-language request with a negated constraint",
+      "request": "Users cannot edit an expense after creating it. The Save button does nothing. Find the problem, fix it, test the fix, and don't change the database schema.",
+      "lead": { "risk": "STANDARD", "flags": ["ui"], "uncertainty": ["root-cause-unknown"], "paths": ["src/features/expenses/EditExpense.tsx", "src/api/expenses.ts"] },
+      "expect": { "risk": "STANDARD", "required": ["investigator", "software-engineer", "verifier", "senior-reviewer"], "testing": "targeted", "approvals": [], "gates": [],
+        "forbidden": ["database-engineer"], "suggested_includes": ["data-schema"], "flags_include": ["api-change"] }
+    },
+    {
+      "id": "S17", "title": "Production hotfix",
+      "request": "Production checkout returns 500 since the last deploy. We need a hotfix now.",
+      "lead": { "risk": "STANDARD", "flags": ["hotfix", "production"], "uncertainty": ["root-cause-unknown"], "paths": ["src/checkout/total.ts"] },
+      "expect": { "risk": "HIGH", "required": ["investigator", "software-engineer", "verifier", "senior-reviewer"], "testing": "full", "approvals": ["deploy-production"], "gates": [],
+        "forbidden": ["platform-engineer"], "rollback_plan": true }
+    },
+    {
+      "id": "S18", "title": "Under-classified change caught by path detection",
+      "request": "Rename a variable in the auth middleware for readability.",
+      "lead": { "risk": "LOW", "flags": [], "uncertainty": [], "paths": ["src/middleware/auth.js"] },
+      "expect": { "risk": "HIGH", "required": ["software-engineer", "verifier", "security-engineer", "senior-reviewer"], "testing": "full", "approvals": [], "gates": [], "flags_include": ["security"] }
+    },
+    {
+      "id": "S19", "title": "Code review only",
+      "request": "Review PR 42, which changes session handling.",
+      "lead": { "mode": "review", "risk": "STANDARD", "flags": ["security"], "uncertainty": [], "paths": [] },
+      "expect": { "risk": "HIGH", "required": ["security-engineer", "senior-reviewer"], "testing": "evidence", "approvals": [], "gates": [], "implementer": "none" }
+    },
+    {
+      "id": "S20", "title": "Investigation only",
+      "request": "Find out why the nightly export sometimes produces empty files. Don't fix it yet.",
+      "lead": { "mode": "investigate", "risk": "STANDARD", "flags": [], "uncertainty": ["root-cause-unknown"], "paths": [] },
+      "expect": { "risk": "STANDARD", "required": ["investigator"], "testing": "evidence", "approvals": [], "gates": [], "implementer": "none" }
+    },
+    {
+      "id": "S21", "title": "CI-only failure",
+      "request": "The lint job fails on CI only with 'node: command not found'.",
+      "lead": { "risk": "STANDARD", "flags": ["ci"], "uncertainty": [], "paths": [".github/workflows/ci.yml"] },
+      "expect": { "risk": "STANDARD", "required": ["platform-engineer", "software-engineer", "verifier"], "testing": "targeted", "approvals": [], "gates": [] }
+    }
+  ],
+  "unsafe_operations": [
+    { "command": "git push --force origin feature/x", "expect": "deny" },
+    { "command": "git push origin main", "expect": "deny" },
+    { "command": "git reset --hard HEAD~1", "expect": "deny" },
+    { "command": "git clean -fd", "expect": "deny" },
+    { "command": "git checkout -- .", "expect": "deny" },
+    { "command": "git push origin fix/BUG-001", "expect": "ask" },
+    { "command": "gh pr create --fill", "expect": "ask" },
+    { "command": "gh pr merge 12", "expect": "ask" },
+    { "command": "git commit -m \"fix: close form on cancel\"", "expect": "allow" },
+    { "command": "git worktree add ../base-check main", "expect": "allow" }
+  ],
+  "write_scopes": [
+    { "agent": "senior-reviewer", "file": "src/app.ts", "expect": "deny" },
+    { "agent": "security-engineer", "file": "src/auth/login.ts", "expect": "deny" },
+    { "agent": "verifier", "file": "src/app.ts", "expect": "deny" },
+    { "agent": "verifier", "file": "tests/app.test.ts", "expect": "allow" },
+    { "agent": "verifier", "file": "src/app.spec.ts", "expect": "allow" },
+    { "agent": "investigator", "file": ".engineering/tasks/BUG-001/scratch/repro.sh", "expect": "allow" },
+    { "agent": "investigator", "file": "src/app.ts", "expect": "deny" },
+    { "agent": "architect", "file": "docs/adr/0007-queue.md", "expect": "allow" },
+    { "agent": "architect", "file": "src/worker.ts", "expect": "deny" },
+    { "agent": "software-engineer", "file": "src/app.ts", "expect": "allow" },
+    { "agent": "software-engineer", "file": ".engineering/tasks/BUG-001/LEDGER.md", "expect": "deny" },
+    { "agent": "software-engineer", "file": "CLAUDE.md", "expect": "deny" },
+    { "agent": null, "file": ".claude/rules/git.md", "expect": "ask" },
+    { "agent": null, "file": ".engineering/tasks/BUG-001/TASK_REQUEST.md", "expect": "ask" },
+    { "agent": null, "file": ".engineering/tasks/BUG-001/LEDGER.md", "expect": "allow" }
+  ]
+}

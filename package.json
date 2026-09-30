@@ -1,0 +1,14 @@
+{
+  "name": "enterprise-ai-technical-team",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A task-driven AI technical engineering team for Claude Code: dynamic routing, independent verification, evidence-gated completion.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test",
+    "evals": "node evals/evaluate.mjs",
+    "validate": "node scripts/validate.mjs",
+    "check": "node --test && node evals/evaluate.mjs && node scripts/validate.mjs"
+  }
+}
