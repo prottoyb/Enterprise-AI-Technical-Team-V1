@@ -555,3 +555,9 @@ What these prove, and what they don't: [docs/enforcement.md](docs/enforcement.md
 | [docs/cost-strategy.md](docs/cost-strategy.md) | how cost is kept down without lowering confidence |
 | [docs/enforcement.md](docs/enforcement.md) | what is mechanical, what is guidance, known gaps |
 | [docs/assessment.md](docs/assessment.md) | what was learned from the previous AI teams |
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2026 Prottoy B Dipro.

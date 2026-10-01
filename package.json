@@ -2,6 +2,7 @@
   "name": "enterprise-ai-technical-team",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "A task-driven AI technical engineering team for Claude Code: dynamic routing, independent verification, evidence-gated completion.",
   "type": "module",
   "engines": { "node": ">=22" },
