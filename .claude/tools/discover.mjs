@@ -2,20 +2,22 @@
 /**
  * discover — deterministic repository discovery, cached for the whole team.
  *
- *   node .claude/tools/discover.mjs [--root <dir>] [--json] [--no-write]
+ *   node .claude/tools/discover.mjs [--root <dir>] [--json] [--no-write] [--force]
  *
- * Writes .engineering/context/repo-context.json and repo-context.md, and prints the markdown.
- * Every agent reads the cached summary instead of re-exploring the repository. Re-run it when the
- * summary's HEAD differs from `git rev-parse HEAD` or manifests changed.
+ * Scans the PROJECT root only (context.mjs: in Workspace Mode the configured project_root, never
+ * the workspace or the team) and writes <state_root>/context/repo-context.json and
+ * repo-context.md, then prints the markdown. Every agent reads the cached summary instead of
+ * re-exploring the repository. The cache is reused while the project's HEAD is unchanged
+ * (`--force` rescans); `task.mjs start` runs this for you.
  *
  * It reads manifest and config files only. It lists `.env*` files by name and NEVER opens them.
  * Everything it reports is a file-level observation; commands it suggests are INFERRED until run.
  */
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadPolicy, parseArgs, WORK_DIR } from './lib.mjs';
+import { loadContext } from './context.mjs';
+import { git as gitRun, loadPolicy, parseArgs, samePath, WORK_DIR } from './lib.mjs';
 
 const SKIP = new Set(['.git', 'node_modules', 'vendor', 'dist', 'build', 'out', 'target', '.next', '.nuxt', '.svelte-kit', 'coverage',
   '.venv', 'venv', 'env', '__pycache__', '.gradle', '.idea', '.vscode', 'bin', 'obj', '.terraform', WORK_DIR, 'Pods', 'DerivedData',
@@ -82,7 +84,7 @@ function walk(root) {
 }
 
 const read = (root, rel) => { try { return readFileSync(join(root, rel), 'utf8'); } catch { return ''; } };
-const git = (root, args) => { try { return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
+const git = gitRun;
 const add = (map, key, value) => { if (!map[key]) map[key] = []; if (!map[key].includes(value)) map[key].push(value); };
 
 export function discover(root) {
@@ -158,8 +160,10 @@ export function discover(root) {
   return {
     generated_at: new Date().toISOString(),
     root: basename(root),
+    project_root: root,
     git: branch === null ? null : {
       head: git(root, ['rev-parse', '--short', 'HEAD']),
+      head_full: git(root, ['rev-parse', 'HEAD']),
       branch,
       canonical_branch: canonical,
       uncommitted_changes: status ? status.split('\n').length : 0,
@@ -188,6 +192,7 @@ export function toMarkdown(c) {
   return `# Repository Context (${c.root})
 
 Generated ${c.generated_at} by \`.claude/tools/discover.mjs\`. Facts are OBSERVED from files; commands are INFERRED until run.
+Project root: \`${c.project_root}\` — run every project command (tests, builds, git) there.
 ${c.git ? `Git: branch \`${c.git.branch}\` @ \`${c.git.head}\`, canonical \`${c.git.canonical_branch ?? 'unknown'}\`, ${c.git.uncommitted_changes} uncommitted change(s) — existing changes belong to the human; do not overwrite them.` : 'Git: not a git repository.'}
 
 - Files scanned: ${c.file_count} · test files: ${c.tests}
@@ -212,19 +217,43 @@ ${c.validation_commands.length ? c.validation_commands.map((x) => `- \`${x}\``).
 `;
 }
 
-function main() {
-  const opts = parseArgs(process.argv.slice(2), { booleans: ['json', 'no-write'] });
-  const root = resolve(opts.root ?? process.cwd());
-  if (!existsSync(root) || !statSync(root).isDirectory()) { process.stderr.write(`discover: ${root} is not a directory\n`); process.exit(2); }
-  const ctx = discover(root);
-  const md = toMarkdown(ctx);
-  if (!opts['no-write']) {
-    const out = join(root, WORK_DIR, 'context');
-    mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, 'repo-context.json'), `${JSON.stringify(ctx, null, 2)}\n`);
-    writeFileSync(join(out, 'repo-context.md'), md);
+/**
+ * Discover the project and cache the result in <state_root>/context/, reusing the cache while the
+ * project's HEAD and root are unchanged. Returns { context, md, reused, dir }.
+ */
+export function discoverCached({ projectRoot, stateRoot, force = false, write = true }) {
+  const dir = join(stateRoot, 'context');
+  const jsonFile = join(dir, 'repo-context.json');
+  const mdFile = join(dir, 'repo-context.md');
+  const head = git(projectRoot, ['rev-parse', 'HEAD']);
+  if (!force && head && existsSync(jsonFile) && existsSync(mdFile)) {
+    try {
+      const cached = JSON.parse(readFileSync(jsonFile, 'utf8'));
+      if (cached.git?.head_full === head && cached.project_root === resolve(projectRoot)) return { context: cached, md: readFileSync(mdFile, 'utf8'), reused: true, dir };
+    } catch { /* rescan */ }
   }
-  process.stdout.write(opts.json ? `${JSON.stringify(ctx, null, 2)}\n` : md);
+  const context = discover(projectRoot);
+  const md = toMarkdown(context);
+  if (write) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(jsonFile, `${JSON.stringify(context, null, 2)}\n`);
+    writeFileSync(mdFile, md);
+  }
+  return { context, md, reused: false, dir };
+}
+
+function main() {
+  const opts = parseArgs(process.argv.slice(2), { booleans: ['json', 'no-write', 'force'] });
+  let ctx;
+  try { ctx = loadContext(); } catch (err) { process.stderr.write(`discover: ${err.message}\n`); process.exit(2); }
+  const root = resolve(opts.root ?? ctx.project_root);
+  if (!existsSync(root) || !statSync(root).isDirectory()) { process.stderr.write(`discover: ${root} is not a directory\n`); process.exit(2); }
+  // Installed Mode keeps state beside the scanned root; Workspace Mode keeps it in the workspace state root.
+  const stateRoot = ctx.mode === 'workspace' ? ctx.state_root : join(root, WORK_DIR);
+  // in Workspace Mode the cache belongs to the configured project: scanning another directory never overwrites it
+  const write = !opts['no-write'] && (ctx.mode !== 'workspace' || samePath(root, ctx.project_root));
+  const { context, md } = discoverCached({ projectRoot: root, stateRoot, force: opts.force || !!opts.root, write });
+  process.stdout.write(opts.json ? `${JSON.stringify(context, null, 2)}\n` : md);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

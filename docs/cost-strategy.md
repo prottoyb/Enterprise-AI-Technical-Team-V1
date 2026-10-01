@@ -8,8 +8,9 @@ buy savings with a real loss of confidence. Cost optimisation comes after correc
 | Lever | Mechanism | Guard against false economy |
 |---|---|---|
 | **Smallest sufficient agent set** | the routing policy activates specialists only on flags; LOW tasks use no subagent; evals assert the exact set per scenario | the flags' minimum risk and path detection escalate automatically; the verifier is never optional above LOW |
-| **Deterministic work is scripts** | discovery, routing, the evidence gate, retry policy, UI capture, framework validation and git safety cost zero model tokens | scripts report facts; judgement stays with agents |
-| **Discover once** | `discover.mjs` writes `.engineering/context/repo-context.md`; every packet points to it | regenerated when HEAD or the manifests change |
+| **Deterministic work is scripts** | workspace preflight, task start and resume, request validation, git base capture, discovery, routing, the evidence gate, retry policy, UI capture, framework validation and git safety cost zero model tokens | scripts report facts; judgement stays with agents |
+| **Discover once** | `task.mjs start` runs `discover.mjs` on the project root only and caches `<state_root>/context/repo-context.md`; every packet points to it | reused while the project's HEAD is unchanged; `--force` rescans |
+| **Resume, don't redo** | an interrupted task resumes from the ledger and handoffs; the startup packet names the next step | finished handoffs are never regenerated |
 | **No context amplification** | packets carry paths, not content; agents write detail to handoff files and return ≤150 words; later agents read only the handoffs they need | handoffs keep the full evidence on disk for audit |
 | **Reuse, don't redo** | agents read earlier handoffs first and confirm or dispute them instead of re-investigating | disputes need evidence |
 | **Load on demand** | the lifecycle and procedures are skills (loaded only when used); domain rules are path-scoped (loaded only when matching files are touched) | the always-loaded set (`CLAUDE.md` + 5 short rules) carries every invariant |

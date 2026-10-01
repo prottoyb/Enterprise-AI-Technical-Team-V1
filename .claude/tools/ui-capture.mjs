@@ -12,8 +12,8 @@
  * errors and failed requests. Output: <out>/report.json plus a compact summary on stdout.
  *
  * Needs Playwright in the target project (`playwright` or `@playwright/test`) and Chromium
- * (`npx playwright install chromium`). It is resolved from the current directory, so run it
- * from the project root. `--setup` names a module whose default export
+ * (`npx playwright install chromium`). It is resolved from the project root (context.mjs), falling
+ * back to the current directory. `--setup` names a module whose default export
  * `async ({ page, context, baseURL })` signs in a test user; it runs once per browser context.
  * Exit: 0 done (findings are reported, not failures, unless --strict), 1 findings with
  * --strict, 2 bad arguments, 3 Playwright unavailable, 4 no page could be loaded.
@@ -187,7 +187,10 @@ function auditPage(opts, contrastRatio) {
 }
 
 async function loadPlaywright() {
-  const req = createRequire(join(process.cwd(), 'package.json'));
+  // from the project (Workspace Mode: project_root, not the workspace the session runs in)
+  let base = process.cwd();
+  try { base = (await import('./context.mjs')).loadContext().project_root; } catch { /* current directory */ }
+  const req = createRequire(join(base, 'package.json'));
   for (const name of ['playwright', '@playwright/test', 'playwright-core']) {
     try {
       const mod = await import(pathToFileURL(req.resolve(name)).href);

@@ -1,12 +1,12 @@
 // The evidence gate (task.mjs check), task creation, request checking and the retry policy.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { checkLedger, checkRequest, newTask, retryDecision, sections, tableRows } from '../.claude/tools/task.mjs';
+import { checkLedger, checkRequest, humanRequirements, resolveType, retryDecision, sections, tableRows } from '../.claude/tools/task.mjs';
 import { evidencedLedger } from '../evals/evaluate.mjs';
 import { route } from '../.claude/tools/route.mjs';
 
@@ -83,6 +83,7 @@ test('missing handoff files are detected when the task folder is known', () => {
   try {
     mkdirSync(join(dir, 'handoffs'));
     writeFileSync(join(dir, 'handoffs', '01-investigator.md'), '# x');
+    for (const f of ['task.json', 'TASK_REQUEST.md']) cpSync(join(EXAMPLE, f), join(dir, f)); // the start record, intact
     const errs = checkLedger(exampleLedger(), { taskDir: dir, paths: EXAMPLE_PATHS }).errors;
     assert.ok(errs.some((e) => /no handoff file from verifier/.test(e)));
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -93,27 +94,47 @@ test('retry policy: correct, correct, escalate, stop', () => {
   assert.throws(() => retryDecision(0));
 });
 
-test('task request: TASK and GOAL are required; constraints only warn', () => {
+test('task request: TASK and GOAL are required; success criteria and constraints only warn', () => {
   const template = readFileSync(fileURLToPath(new URL('../templates/TASK_REQUEST.md', import.meta.url)), 'utf8');
-  assert.equal(checkRequest(template).errors.length, 2);
-  const filled = template.replace('What is wrong, or what needs to change?', 'Save does nothing.').replace('What does the correct result look like when the team is done?', 'Save persists.');
+  assert.deepEqual(checkRequest(template).errors, ['TASK is required and still empty', 'GOAL is required and still empty'], 'guidance inside comments does not count as content');
+  const filled = template.replace('## TASK — required\n', '## TASK — required\n\nSave does nothing.\n').replace('## GOAL — required\n', '## GOAL — required\n\nSave persists.\n');
   assert.deepEqual(checkRequest(filled).errors, []);
-  assert.equal(checkRequest(filled).warnings.length, 1);
+  assert.equal(checkRequest(filled).warnings.length, 2, 'no success criteria (the "- [ ] ..." placeholder does not count) and no constraints');
   assert.deepEqual(checkRequest(readFileSync(join(EXAMPLE, 'TASK_REQUEST.md'), 'utf8')), { errors: [], warnings: [] });
+  // the pre-Workspace-Mode format still validates
+  const legacy = '# Task Request\n\n## TASK (required)\n\nSave does nothing.\n\n## GOAL (required)\n\nSave persists.\n\n## CONSTRAINTS (recommended)\n\nnone\n';
+  assert.deepEqual(checkRequest(legacy).errors, []);
+  assert.deepEqual(checkRequest(legacy.replace('Save does nothing.', 'What is wrong, or what needs to change?')).errors, ['TASK is required and still empty']);
 });
 
-test('new task: sequential IDs per type, filled ledger frontmatter', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tasks-'));
+test('task request: the human\'s criteria, constraints, exclusions, preferences and type are extracted', () => {
+  const r = humanRequirements(readFileSync(join(EXAMPLE, 'TASK_REQUEST.md'), 'utf8'));
+  assert.deepEqual(r.criteria, ['Editing and saving an expense persists the new values.', 'A failed save shows an error message instead of doing nothing.']);
+  assert.deepEqual(r.constraints, ["Don't change the database schema.", 'Keep the existing API response format. The mobile app uses it too.',
+    'Out-of-scope areas: the expense list redesign (separate task).', 'The team must NOT: change the mobile API contract.']);
+  assert.equal(r.preferences.length, 1);
+  assert.equal(r.type, 'bug');
+});
+
+// (Task creation — sequential IDs, the ledger, the start record — is exercised end to end in tests/workspace.test.mjs.)
+test('task types resolve from a prefix or a type name', () => {
+  assert.deepEqual(['bug', 'BUG', 'feature', 'Feat', 'client-customisation'].map(resolveType), ['BUG', 'BUG', 'FEAT', 'FEAT', 'CLIENT']);
+  assert.equal(resolveType('nope'), null);
+  assert.equal(resolveType(null), null);
+});
+
+test('a ledger created by start whose task.json was deleted cannot pass the gate', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'nometa-'));
   try {
-    assert.equal(newTask('bug', { title: 'One', root: dir }).id, 'BUG-001');
-    assert.equal(newTask('BUG', { title: 'Two', root: dir }).id, 'BUG-002');
-    const { id, dir: taskDir } = newTask('feat', { root: dir });
-    assert.equal(id, 'FEAT-001');
-    const ledger = readFileSync(join(taskDir, 'LEDGER.md'), 'utf8');
-    assert.match(ledger, /^id: FEAT-001$/m);
-    assert.match(ledger, /^type: feature$/m);
-    assert.ok(existsSync(join(taskDir, 'TASK_REQUEST.md')) && existsSync(join(taskDir, 'handoffs')));
-    assert.throws(() => newTask('nope', { root: dir }), /unknown task type/);
+    cpSync(EXAMPLE, dir, { recursive: true });
+    assert.deepEqual(errorsOf(exampleLedger(), { taskDir: dir }), []);
+    unlinkSync(join(dir, 'task.json'));
+    assert.ok(errorsOf(exampleLedger(), { taskDir: dir }).some((e) => /task\.json is missing/.test(e)));
+    // a version-1 ledger (legacy `base:`) never had one, and is still checked the old way
+    const v1 = exampleLedger().replace(/^base_commit: .*$/m, 'base: main').replace(/^.*Immutable: the final diff.*$/m, '');
+    assert.ok(!errorsOf(v1, { taskDir: dir }).some((e) => /task\.json/.test(e)));
+    // ...but a ledger that still carries the Context line `start` writes is not a version-1 ledger
+    assert.ok(errorsOf(exampleLedger().replace(/^base_commit: .*$/m, 'base: main'), { taskDir: dir }).some((e) => /task\.json is missing/.test(e)));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -125,10 +146,19 @@ test('check uses git to find changed files against the ledger base', { skip: exe
     git('config', 'user.email', 't@example.invalid');
     git('config', 'user.name', 't');
     git('commit', '-q', '--allow-empty', '-m', 'init');
+    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     mkdirSync(join(dir, 'migrations'));
     writeFileSync(join(dir, 'migrations', '001.sql'), 'select 1;');
-    const errs = checkLedger(exampleLedger(), { root: dir }).errors;
+    const ledger = exampleLedger().replace(/^base_commit: .*$/m, `base_commit: "${base}"`);
+    const errs = checkLedger(ledger, { root: dir }).errors;
     assert.ok(errs.some((e) => /data-schema/.test(e)), 'an untracked migration is seen');
+    // a base that is not a commit of this repository is a hard failure, never "no files changed"
+    const bad = checkLedger(exampleLedger(), { root: dir }).errors;
+    assert.ok(bad.some((e) => /Final source diff could not be established/.test(e) && /not a commit/.test(e)), bad.join(' | '));
+    // a legacy branch-name base still works, with a warning that branches move
+    const legacy = checkLedger(exampleLedger().replace(/^base_commit: .*$/m, 'base: main'), { root: dir });
+    assert.ok(legacy.errors.some((e) => /data-schema/.test(e)));
+    assert.ok(legacy.warnings.some((w) => /is a ref, not a commit SHA/.test(w)));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

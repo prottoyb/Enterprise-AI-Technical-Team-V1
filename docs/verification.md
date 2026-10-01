@@ -25,9 +25,24 @@ Anything that could not be verified is written as **Not verified**, and the stat
 `node .claude/tools/task.mjs check <ID>` refuses `status: complete` unless every condition holds:
 
 - **Frontmatter.** It is valid: the risk, flags, mode and agents are known to the policy.
+- **Start record.** For tasks begun with `task.mjs start`: the request snapshot still matches its
+  SHA-256, the ledger's `base_commit` matches `task.json`, and the project root is the one the task
+  started in.
+- **Final source diff.** The project's diff from the recorded base commit (committed, staged,
+  unstaged and untracked files) can be established. If it cannot (no base, a base that is not a
+  commit of the project, not a git repository), the result is *"Final source diff could not be
+  established from the recorded base commit. Completion cannot be proven."*, a failure for change
+  and investigate tasks. A change task with an empty diff is not complete; an investigate task
+  with a non-empty diff is not either.
+- **Human changes.** Pre-existing uncommitted changes recorded at start are excluded from the task
+  diff while intact. One that was discarded or committed during the task fails the gate; one the
+  task also modified is reported for disclosure.
+- **Team root** (Workspace Mode). Its HEAD and working tree are exactly as at start.
 - **Routing.** Re-computing the routing from the ledger's risk and flags, **plus the files
-  actually changed** since `base`, gives the same risk, no missing flags, and no required agent
-  absent from `agents:`.
+  actually changed** since the base commit, gives the same risk, no missing flags, and no required
+  agent absent from `agents:`.
+- **Human requirements.** Every success criterion in the request is still among the Acceptance
+  Criteria, and every constraint and exclusion is still quoted in the ledger.
 - **Agents.** Every routed agent has a Routing row marked `done` and a handoff file.
 - **Acceptance criteria.** Every criterion is checked and references Verification IDs that PASS.
 - **Verification.** It contains no FAIL, NOT-RUN or NOT-VERIFIED row. Those mean the status is

@@ -19,10 +19,15 @@ test('write-guard: governance files are protected, including nested CLAUDE.md an
   for (const p of ['src/claude.ts', 'docs/CLAUDE-notes.md', '.claude/worktrees/x/src/a.ts']) assert.equal(isProtected(p), false, p);
 });
 
-test('write-guard: reviewers and specialists write only their task folder', () => {
+test('write-guard: reviewers and specialists write only their own handoff and scratch files', () => {
   for (const agent of ['senior-reviewer', 'security-engineer', 'database-engineer', 'platform-engineer', 'investigator']) {
     assert.equal(decide(agent, 'src/app.ts'), 'deny', agent);
-    assert.equal(decide(agent, '.engineering/tasks/BUG-001/handoffs/03-x.md'), 'allow', agent);
+    assert.equal(decide(agent, `.engineering/tasks/BUG-001/handoffs/03-${agent}.md`), 'allow', agent);
+    assert.equal(decide(agent, '.engineering/tasks/BUG-001/scratch/repro.sh'), 'allow', agent);
+    // tightened: another agent's handoff, the start record and loose task files are not theirs
+    assert.equal(decide(agent, '.engineering/tasks/BUG-001/handoffs/03-verifier.md'), 'deny', agent);
+    assert.equal(decide(agent, '.engineering/tasks/BUG-001/task.json'), 'deny', agent);
+    assert.equal(decide(agent, '.engineering/tasks/BUG-001/notes.md'), 'deny', agent);
     assert.equal(decide(agent, '.engineering/tasks/BUG-001/LEDGER.md'), 'deny', agent);
     assert.equal(decide(agent, '/etc/passwd'), 'deny', agent);
   }
@@ -52,7 +57,10 @@ test('write-guard: the implementer writes code but not governance, the ledger or
 
 test('write-guard: the lead is asked before governance or task-request edits; other agents are unconstrained', () => {
   assert.equal(decide(undefined, '.claude/rules/git.md'), 'ask');
+  assert.equal(decide(undefined, 'WORKSPACE.json'), 'ask');
   assert.equal(decide(undefined, '.engineering/tasks/X-1/TASK_REQUEST.md'), 'ask');
+  assert.equal(decide(undefined, 'TASK_REQUEST.md'), 'ask');
+  assert.equal(decide(undefined, '.engineering/tasks/X-1/task.json'), 'deny', 'the start record is written only by task.mjs');
   assert.equal(decide(undefined, '.engineering/tasks/X-1/LEDGER.md'), 'allow');
   assert.equal(decide(undefined, 'src/app.ts'), 'allow');
   assert.equal(decide('general-purpose', 'src/app.ts'), 'allow');
@@ -94,12 +102,40 @@ test('completion-guard: blocks a recent "complete" ledger that fails the gate, o
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('completion-guard: a complete claim without a provable source diff is blocked', () => {
+  // Changed deliberately (Workspace Mode upgrade): this used to pass with a warning, because a missing
+  // diff silently became "no files changed". A change task whose diff cannot be established from its
+  // base commit cannot prove completion, so it is now a hard failure.
+  const dir = project();
+  try {
+    const failing = failingLedgers(dir);
+    assert.equal(failing.length, 1, 'not a git repository: no diff can be established');
+    assert.ok(failing[0].errors.some((e) => /Final source diff could not be established/.test(e)));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('completion-guard: ignores in-progress, old, and valid ledgers', () => {
   const dir = project();
   try {
     const ledger = join(dir, '.engineering', 'tasks', 'BUG-001', 'LEDGER.md');
-    // not a git repo here, so the changed files come from nowhere: the example is still consistent
-    assert.equal(failingLedgers(dir).length, 0);
+    // a real repository whose diff from the recorded base is exactly the example's changed files
+    const git = (...a) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@example.invalid');
+    git('config', 'user.name', 't');
+    writeFileSync(join(dir, '.gitignore'), '.engineering/\n');
+    git('add', '.gitignore');
+    git('commit', '-q', '-m', 'base');
+    const base = git('rev-parse', 'HEAD').stdout.trim();
+    for (const f of ['src/api/expenses.ts', 'src/features/expenses/EditExpense.tsx', 'tests/api/expenses.test.ts', 'tests/features/EditExpense.test.tsx']) {
+      mkdirSync(join(dir, f, '..'), { recursive: true });
+      writeFileSync(join(dir, f), 'x');
+    }
+    writeFileSync(ledger, readFileSync(ledger, 'utf8').replace(/^base_commit: .*$/m, `base_commit: "${base}"`));
+    const metaFile = join(dir, '.engineering', 'tasks', 'BUG-001', 'task.json');
+    const meta = JSON.parse(readFileSync(metaFile, 'utf8'));
+    writeFileSync(metaFile, JSON.stringify({ ...meta, project: { ...meta.project, base_commit: base } }));
+    assert.deepEqual(failingLedgers(dir), []);
     writeFileSync(ledger, readFileSync(ledger, 'utf8').replace('agents: [investigator, software-engineer, verifier, senior-reviewer]', 'agents: [software-engineer]'));
     const old = (Date.now() - 48 * 3600e3) / 1000;
     utimesSync(ledger, old, old);

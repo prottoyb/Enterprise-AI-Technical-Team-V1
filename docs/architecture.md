@@ -26,6 +26,50 @@ Human ──► Engineering Lead (main session) ──────────�
              ▲ each agent: packet in → handoffs/NN-agent.md out → ≤150-word return
 ```
 
+## Workspace Mode and Installed Mode
+
+Two layouts, one runtime and one code path:
+
+| | Workspace Mode (recommended) | Installed Mode |
+|---|---|---|
+| Claude Code opens in | the workspace root | the repository |
+| Team (framework source) | a sibling folder, read-only during tasks | copied into the repository's `.claude/` |
+| Project (what is engineered) | `project_root` in `WORKSPACE.json` | the repository |
+| Task state | `state_root` (default `<workspace>/.engineering`) | `<repository>/.engineering` |
+| Runtime | the workspace's `.claude/`, copied from the team by `scripts/workspace.mjs` | the repository's `.claude/`, copied by `scripts/install.mjs` |
+
+**One resolution layer.** `.claude/tools/context.mjs` resolves `workspace_root`, `team_root`,
+`project_root`, `state_root` and `task_request` for every tool and hook. `WORKSPACE.json` in the
+session root selects Workspace Mode; without it, all roots collapse to the repository, which is
+Installed Mode. No tool derives a root from `process.cwd()` or folder names on its own. Discovery,
+git capture, the diff, `write-guard`'s scopes, `git-guard`'s team-root rule and `completion-guard`
+all take the project root from here.
+
+**Why the runtime is copied, not referenced.** Claude Code discovers agents, skills, rules and hooks
+only under the session's own `.claude/`, and `CLAUDE.md` imports resolve relative to the importing
+file. Copying the same runtime Installed Mode uses keeps every `.claude/tools/...` reference in the
+prompts valid in both modes, so there is no second implementation. The copy is tracked by hash
+(`.claude/engineering-team.manifest.json`): the preflight reports local edits (which are not the
+framework) and a team source that has moved on; `workspace.mjs update` refreshes untouched files and
+reports edited ones as conflicts. The team folder stays the single authoritative source.
+
+**Task start is deterministic.** `task.mjs start` preflights the roots, validates the request, and
+either resumes the open task for the same request (matched by the request's SHA-256) or creates a
+new one: the byte-exact request snapshot, `task.json` (base commit from `git rev-parse HEAD` in the
+project, base branch, every uncommitted change with its blob hash, the team root's fingerprint),
+the ledger pre-filled with the human's goal, success criteria and constraints, and cached
+source-only discovery. No model reasoning is spent on bookkeeping.
+
+**The final diff is the project's, from the immutable base.** `task.mjs check` diffs the project's
+working tree against `base_commit` (committed, staged, unstaged and untracked), removes the human's
+pre-existing changes that are still intact, and fails if a pre-existing change was discarded or
+committed, if the diff cannot be established, if a change task changed nothing, or if the team root
+changed. A branch name is never the base.
+
+**Multiple repositories** are not supported in one workspace yet: `project_root` is a single path,
+and the team never guesses between repositories. The configuration is versioned (`"version": 1`)
+so a later version can add a list of projects without breaking this one.
+
 ## Why the Lead Is the Main Session, Not a Subagent
 
 This is a deliberate deviation from the brief's sketch of an "Engineering Lead agent".
@@ -83,8 +127,8 @@ reason. The full procedure is in `.claude/skills/engineering-task/SKILL.md`. For
 Agents never converse with each other. Uncontrolled agent-to-agent dialogue is expensive and hard
 to audit. Instead:
 
-- **Packet (lead → agent):** the task ID, the ledger path, the question, input handoff paths and
-  the constraints. Never pasted file contents.
+- **Packet (lead → agent):** the task ID, the project root, the ledger path, the question, input
+  handoff paths, the constraints and the writable scope. Never pasted file contents.
 - **Handoff file (agent → disk):** verdict, confidence, evidence with labels, root cause or
   recommendation, files, tests with real output, risks, next recommended agent.
 - **Return (agent → lead):** at most ~150 words plus the handoff path.
@@ -94,17 +138,23 @@ Detail lives on disk once, and each later agent reads only what it needs. The co
 
 ## Task State
 
-`.engineering/tasks/<ID>/` holds:
+`<state_root>/tasks/<ID>/` holds:
 
-- `TASK_REQUEST.md`: the human's input, authoritative. The lead doesn't rewrite it, and a hook
-  asks before any edit.
-- `LEDGER.md`: the single source of task state (frontmatter for machine checks, short sections for
-  people). It holds conclusions and evidence, never reasoning transcripts.
-- `handoffs/NN-<agent>.md`: each agent's evidence.
-- `scratch/`: reproduction scripts (git-ignored).
+- `TASK_REQUEST.md`: the byte-exact snapshot of the human's input, authoritative. The lead doesn't
+  rewrite it; a hook asks before any edit and the gate detects one (SHA-256).
+- `task.json`: the start record written once by `task.mjs start` (base commit, pre-existing
+  changes, request hash, team and workspace-runtime fingerprints; paths relative to the state root,
+  `version: 1`). No agent or lead edits it, and the gate fails if it is deleted.
+- `LEDGER.md`: the single source of the task's *progress and conclusions* (frontmatter for machine
+  checks, short sections for people); `task.json` holds only the immutable facts from the start. It holds conclusions and evidence, never reasoning transcripts. Its `status` decides the
+  lifecycle: `in-progress` and `blocked` are open (resumed by `start`); `complete`, `partial` and
+  `cancelled` are closed (never resumed). One task is open at a time.
+- `handoffs/NN-<agent>.md`: each agent's evidence, written only by that agent.
+- `scratch/`: reproduction scripts (git-ignored in Installed Mode).
 
-The repository context is cached at `.engineering/context/repo-context.md` (git-ignored), so no
-agent rediscovers the repository within a task.
+The project context is cached at `<state_root>/context/repo-context.md` and reused while the
+project's HEAD is unchanged, so no agent rediscovers the repository within a task. Resuming after an
+interruption reads only these files; nothing depends on the conversation.
 
 ## Self-Correction Without Loops
 
@@ -131,6 +181,10 @@ agent rediscovers the repository within a task.
 | Premature success / hallucinated results | evidence labels; command output quoted; the `task.mjs check` evidence gate; `completion-guard` Stop hook |
 | Assumptions as facts | the OBSERVED / INFERRED / ASSUMED / UNVERIFIED labels are mandatory |
 | Agents modifying unrelated code | `write-guard` scopes; diff inspection; change-control rule |
+| The framework mistaken for the application, or modified by a task | Workspace Mode: separate team and project roots; source-only discovery and diff; team root denied to file tools and to non-read-only git; team fingerprint checked at completion |
+| Human work absorbed or lost | pre-existing changes recorded with hashes at start; the gate fails if one is discarded or committed |
+| Completion claimed without a real diff | the gate diffs the project from the immutable base commit and fails when it cannot |
+| Lost context after an interruption | task state in files; `task.mjs start` resumes the open task; closed tasks never resume |
 | Self-review as the only verification | the implementer ≠ the verifier ≠ the reviewer at STANDARD/HIGH; reviewers cannot edit code |
 | Reviewer rubber-stamping | reviewers must challenge the root cause and evidence, re-run weak checks, and give `file:line` findings |
 | Trusting stale docs over code | the evidence rule: code and tests win; stale docs are reported |

@@ -139,6 +139,10 @@ test('validate: each class of check can actually fail (mutation tests)', async (
     ['a machine-specific path', 'docs/cost-strategy.md', (t) => `${t}\nSee ${'C:'}\\Users\\someone\\notes.\n`, /absolute path/],
     ['a legacy team name', 'docs/cost-strategy.md', (t) => `${t}\nRun ${'build-from'}-brief first.\n`, /legacy name/],
     ['an unwired hook', '.claude/settings.json', (t) => t.replace(/,\s*"Stop": \[[\s\S]*?\]\s*\}\s*\]/, ''), /completion-guard\.mjs: hook is not wired/],
+    ['README loses the start prompt', 'README.md', (t) => t.replaceAll('execute TASK_REQUEST.md through verified completion', 'run the task'), /README\.md: does not document the start prompt/],
+    ['README documents a subcommand that does not exist', 'README.md', (t) => `${t}\nRun \`node .claude/tools/task.mjs resume BUG-001\`.\n`, /task\.mjs resume`, which .* does not implement/],
+    ['a documented subcommand is removed from the tool', '.claude/tools/task.mjs', (t) => t.replace("cmd === 'status'", "cmd === 'state'"), /does not implement `status`|task\.mjs status`, which/],
+    ['the ledger template loses the immutable base', 'templates/LEDGER.md', (t) => t.replace(/^base_commit: .*\n/m, ''), /frontmatter lacks base_commit/],
   ];
   for (const [name, file, mutate, expected] of mutations) {
     const copy = tmp('mut-');

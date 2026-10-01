@@ -20,12 +20,15 @@ const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostTool
 const REQUIRED_FILES = [
   'CLAUDE.md', 'README.md', '.gitignore', 'package.json', '.claude/settings.json',
   '.claude/tools/routing-policy.json', '.claude/tools/route.mjs', '.claude/tools/task.mjs', '.claude/tools/discover.mjs', '.claude/tools/lib.mjs',
+  '.claude/tools/context.mjs',
   '.claude/hooks/git-guard.mjs', '.claude/hooks/write-guard.mjs', '.claude/hooks/completion-guard.mjs',
   '.claude/skills/engineering-task/SKILL.md', '.claude/rules/handoffs.md',
   'templates/TASK_REQUEST.md', 'templates/LEDGER.md', 'templates/HANDOFF.md',
   'docs/assessment.md', 'docs/architecture.md', 'docs/agents.md', 'docs/risk-and-approvals.md', 'docs/verification.md', 'docs/cost-strategy.md', 'docs/enforcement.md',
-  'evals/scenarios.json', 'evals/evaluate.mjs', 'scripts/install.mjs',
+  'evals/scenarios.json', 'evals/evaluate.mjs', 'evals/live-scenarios.md', 'scripts/install.mjs', 'scripts/workspace.mjs',
 ];
+// The one generic instruction a human gives. README documents it; CLAUDE.md must recognise it.
+export const START_PROMPT = 'Start the engineering team and execute TASK_REQUEST.md through verified completion.';
 // Agents that must not edit code: file tools, if held, are confined by write-guard to their handoff (and docs/tests).
 const NO_EDIT = ['investigator', 'senior-reviewer', 'security-engineer', 'database-engineer', 'platform-engineer'];
 // Document authors hold no shell, so write-guard's confinement of them is mechanical.
@@ -36,7 +39,7 @@ const SECRET = /(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY----
 const ABS_PATH = /([A-Za-z]:\\(Users|Projects)\\|[A-Za-z]:\/(Users|Projects)\/|\/home\/[a-z_][\w-]*\/|\/Users\/[A-Za-z][\w-]*\/)/;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.engineering']);
 // Paths that exist in an adopting project (or an earlier team), not in this repository.
-const EXTERNAL_REFS = [/^docs\/(adr|architecture|design)\//, /^docs\/decisions\.md$/, /^\.claude\/(settings\.local\.json|engineering-team\.md|templates)/, /^evals\/(behavioral|RESULTS)/];
+const EXTERNAL_REFS = [/^docs\/(adr|architecture|design)\//, /^docs\/decisions\.md$/, /^\.claude\/(settings\.local\.json|engineering-team\.md|engineering-team\.manifest\.json|templates)/, /^evals\/(behavioral|RESULTS)/];
 // Files that describe a hypothetical project or the earlier teams, so their paths are not ours.
 const NO_REF_CHECK = [/^examples\//, /^docs\/assessment\.md$/];
 
@@ -172,10 +175,22 @@ export async function validate(root) {
   const { TASK_TYPES } = await import(pathToFileURL(join(root, '.claude/tools/task.mjs')).href);
   const request = read('templates/TASK_REQUEST.md');
   for (const t of Object.values(TASK_TYPES)) if (!request.includes(t)) err('templates/TASK_REQUEST.md', `task type "${t}" is not listed`);
-  for (const field of ['## TASK', '## GOAL', '## CONSTRAINTS', '## EVIDENCE']) if (!request.includes(field)) err('templates/TASK_REQUEST.md', `missing ${field}`);
+  for (const field of ['## TASK', '## GOAL', '## SUCCESS CRITERIA', '## CONSTRAINTS', '## EVIDENCE', '## SOLUTION EXPECTATIONS']) if (!request.includes(field)) err('templates/TASK_REQUEST.md', `missing ${field}`);
   const ledger = parseFrontmatter(read('templates/LEDGER.md'));
   if (ledger.error) err('templates/LEDGER.md', ledger.error);
-  else for (const k of ['id', 'type', 'status', 'mode', 'risk', 'flags', 'uncertainty', 'agents', 'base', 'failed_verifications', 'approvals', 'actions_performed']) if (!(k in ledger.data)) err('templates/LEDGER.md', `frontmatter lacks ${k}`);
+  else for (const k of ['id', 'type', 'status', 'mode', 'risk', 'flags', 'uncertainty', 'agents', 'base_commit', 'base_branch', 'failed_verifications', 'approvals', 'actions_performed']) if (!(k in ledger.data)) err('templates/LEDGER.md', `frontmatter lacks ${k}`);
+  if (!/^## Context$/m.test(read('templates/LEDGER.md'))) err('templates/LEDGER.md', 'missing "## Context" (task.mjs start writes the base commit and pre-existing changes there)');
+
+  // ── the human workflow the README documents exists ──
+  const readme = read('README.md');
+  if (!readme.includes(START_PROMPT)) err('README.md', `does not document the start prompt: "${START_PROMPT}"`);
+  if (!claude.includes(START_PROMPT)) err('CLAUDE.md', `does not recognise the start prompt: "${START_PROMPT}"`);
+  // subcommands are read from each tool's own dispatcher (`cmd === 'start'`), so docs cannot drift from the code
+  for (const [tool, file, required] of [['task.mjs', '.claude/tools/task.mjs', ['start', 'status', 'cancel', 'check']], ['workspace.mjs', 'scripts/workspace.mjs', ['init', 'update', 'doctor']]]) {
+    const subs = [...read(file).matchAll(/cmd === '(\w+)'/g)].map((m) => m[1]);
+    for (const m of readme.matchAll(new RegExp(`${tool.replace('.', '\\.')} (\\w+)`, 'g'))) if (!subs.includes(m[1])) err('README.md', `documents \`${tool} ${m[1]}\`, which ${file} does not implement`);
+    for (const sub of required) if (!subs.includes(sub)) err(file, `does not implement \`${sub}\``); else if (!readme.includes(`${tool} ${sub}`)) err('README.md', `does not document \`${tool} ${sub}\``);
+  }
   const scenarios = JSON.parse(read('evals/scenarios.json'));
   for (const s of scenarios.scenarios) {
     for (const a of [...s.expect.required, ...(s.expect.forbidden ?? [])]) if (!policy.agents[a]) err('evals/scenarios.json', `${s.id} names unknown agent ${a}`);

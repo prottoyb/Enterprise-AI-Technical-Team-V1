@@ -8,7 +8,8 @@ risk: STANDARD
 flags: [ui, api-change]
 uncertainty: [root-cause-unknown]
 agents: [investigator, software-engineer, verifier, senior-reviewer]
-base: main
+base_commit: "5d0c3a91e7b24f6a8c1d9e0f2b3a4c5d6e7f8a9b"
+base_branch: "main"
 failed_verifications: 1
 approvals: []
 actions_performed: []
@@ -18,15 +19,32 @@ actions_performed: []
 
 ## Objective
 
-Saving an edited expense must persist the changes, return to the list with the updated values, and
-show an error when the save fails. Constraints (quoted): "Don't change the database schema." "Keep
-the existing API response format."
+Request: `TASK_REQUEST.md` (snapshot; authoritative, never edited).
+
+Goal, in the human's words:
+
+> Saving an edited expense persists the changes, returns the user to the expense list with the
+> updated values, and shows an error message if the save fails.
+
+Constraints, verbatim:
+
+- "Don't change the database schema."
+- "Keep the existing API response format. The mobile app uses it too."
+- "Out-of-scope areas: the expense list redesign (separate task)."
+- "The team must NOT: change the mobile API contract."
 
 ## Acceptance Criteria
 
-- [x] AC1: editing and saving an expense persists the new values — evidence: V2, V4
-- [x] AC2: a failed save shows an error message instead of doing nothing — evidence: V3
+- [x] AC1 (HUMAN): Editing and saving an expense persists the new values. — evidence: V2, V4
+- [x] AC2 (HUMAN): A failed save shows an error message instead of doing nothing. — evidence: V3
 - [x] AC3 (INFERRED): creating expenses and the API response format are unchanged — evidence: V5
+
+## Context
+
+- Mode: installed. Project root: `.` — run every project command there.
+- Base commit: `5d0c3a91e7b24f6a8c1d9e0f2b3a4c5d6e7f8a9b` (branch `main` at start). Immutable: the final diff is taken against it.
+- Pre-existing changes at start (the human's; never overwrite, discard or commit them): none.
+- Repository context: `.engineering/context/repo-context.md`.
 
 ## Routing
 
@@ -50,7 +68,11 @@ to change the schema, and the investigation confirmed that no schema change is n
 
 ## Decisions
 
-- Fix the route path on the server rather than the client: the mobile app also calls `/expenses/:id`.
+- The human's solution preference (guidance, not a constraint): "Probably a frontend problem in the
+  edit form; a client-side fix is fine if it is simplest." **Not followed**: the root cause is the
+  server route (OBSERVED, Findings). A client-side path change would also break the mobile app,
+  which calls `/expenses/:id` and is protected by a constraint. So the route path is fixed on the
+  server, and the form's silent failure is fixed on the client.
 - Show the API error message inline on failure, using the existing `FormError` component.
 
 ## Changes
@@ -92,6 +114,7 @@ Not required (a revert of the fix commit restores the previous behaviour; no dat
 **Task:** editing an expense did not save.
 **Root cause:** the 2.4.0 route rename left `PUT` on `/expense/:id`, so the client's `PUT /expenses/:id` returned 404. The form ignored non-2xx responses, which made the failure silent (OBSERVED).
 **Changes:** corrected the `PUT` route path; the edit form now shows an error on failure. No schema or response-format change.
+**Your suggested approach:** a client-side fix was not used: the defect is in the server route, and changing the client's path would have broken the mobile app.
 **Files:** `src/api/expenses.ts`, `src/features/expenses/EditExpense.tsx`, 2 test files.
 **Verification:** the regression test fails on the base and passes on the fix. Error-path test, manual browser check, and full suite, lint and types are green.
 **Review:** senior reviewer APPROVE. One MEDIUM follow-up (route contract tests).

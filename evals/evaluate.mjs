@@ -44,7 +44,7 @@ risk: ${r.risk}
 flags: [${r.flags.join(', ')}]
 uncertainty: [${r.uncertainty.join(', ')}]
 agents: [${agents.join(', ')}]
-base: main
+base_commit: "0000000000000000000000000000000000000000"
 failed_verifications: 0
 approvals: []
 actions_performed: []
@@ -136,6 +136,23 @@ export function runEvals() {
     return { name: `${w.agent ?? 'lead'} writes ${w.file} → ${w.expect}`, ok: got === w.expect, detail: `got ${got}` };
   });
   results.push({ id: 'W', title: 'Write scopes (write-guard)', checks: writes });
+
+  // Workspace Mode: the same hooks with separate team, project and state roots
+  const ws = SCENARIOS.workspace;
+  const context = { mode: 'workspace', ...ws.roots };
+  const wsChecks = [
+    ...ws.write_scopes.map((w) => {
+      const d = writeGuard({ file: w.file, agentType: w.agent ?? undefined, projectDir: context.workspace_root, context });
+      const got = d?.action ?? 'allow';
+      return { name: `${w.agent ?? 'lead'} writes ${w.file} → ${w.expect}`, ok: got === w.expect, detail: `got ${got}` };
+    }),
+    ...ws.git.map((op) => {
+      const d = gitGuard(op.command, { cwd: context.workspace_root, teamRoot: context.team_root, currentBranch: () => 'fix/BUG-001', canonical: () => new Set(['main', 'master']) });
+      const got = d?.action ?? 'allow';
+      return { name: `${op.command} → ${op.expect}`, ok: got === op.expect, detail: `got ${got}` };
+    }),
+  ];
+  results.push({ id: 'WS', title: 'Workspace Mode: team root and scopes (write-guard, git-guard)', checks: wsChecks });
   return results;
 }
 

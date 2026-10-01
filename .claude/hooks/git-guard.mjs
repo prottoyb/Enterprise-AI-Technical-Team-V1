@@ -6,6 +6,7 @@
  *   DENY  push to a canonical branch (main, master, origin's default)  — CLAUDE.md Hard Limit 1
  *   DENY  any force push (--force, -f, --force-with-lease, +refspec)    — CLAUDE.md Hard Limit 2
  *   DENY  clearly destructive git commands (reset --hard, clean -f, ...) — CLAUDE.md Hard Limit 2
+ *   DENY  in Workspace Mode, any git command that is not read-only inside the team root — CLAUDE.md Workspace Mode
  *   ASK   any other `git push`, `gh pr create`, `gh pr merge` — a human sees the prompt — CLAUDE.md Human Approval
  *
  * Design notes (the framework's docs/enforcement.md has the full control matrix):
@@ -26,8 +27,14 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+// Self-contained on purpose: this hook must keep working even if the team's tools cannot load.
+const contains = (parent, child) => {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === '' || !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel));
+};
 
 const DEFAULT_CANONICAL = ['main', 'master'];
 const MAX_DEPTH = 5;
@@ -311,16 +318,65 @@ function destructiveDecision(sub, rest) {
 // options taking a separate value word, before the git subcommand
 const GIT_VALUE_GLOBALS = new Set(['--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--exec-path']);
 
+// Subcommands that only read a repository: the only git allowed inside the team root in Workspace Mode.
+const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'ls-files', 'ls-tree', 'blame', 'describe', 'grep',
+  'cat-file', 'shortlog', 'rev-list', 'symbolic-ref', 'merge-base', 'name-rev', 'for-each-ref', 'show-ref', 'version', 'help']);
+
+/** Read-only in fact, not just by name: `symbolic-ref HEAD x` writes HEAD, `--output=<file>` writes a file. */
+function readOnly(sub, rest) {
+  if (!READ_ONLY_GIT.has(sub)) return false;
+  if (rest.some((a) => /^--output(=|$)/.test(a))) return false;
+  if (sub === 'symbolic-ref' && (rest.filter((a) => !a.startsWith('-')).length > 1 || rest.some((a) => a === '-d' || a === '--delete'))) return false;
+  return true;
+}
+
+/** Paths a git command writes outside its repository: `--output <file>`, `worktree add <dir>`. */
+function writtenPaths(sub, rest) {
+  const out = [];
+  rest.forEach((a, k) => {
+    if (a.startsWith('--output=')) out.push(a.slice('--output='.length));
+    else if (a === '--output' && rest[k + 1]) out.push(rest[k + 1]);
+  });
+  if (sub === 'worktree' && rest[0] === 'add') {
+    const target = rest.slice(1).find((a, k, arr) => !a.startsWith('-') && !['-b', '-B', '--reason'].includes(arr[k - 1]));
+    if (target) out.push(target);
+  }
+  return out;
+}
+
 function gitDecision(args, ctx) {
   let cwd = ctx.cwd;
+  const repoDirs = []; // --git-dir / --work-tree name the repository as much as -C does
   let i = 0;
   while (i < args.length && args[i].startsWith('-')) {
-    if (args[i] === '-C') { cwd = resolve(cwd, args[i + 1] ?? '.'); i += 2; }
-    else if (args[i] === '-c' || GIT_VALUE_GLOBALS.has(args[i])) i += 2;
+    const a = args[i];
+    if (a === '-C') { cwd = resolve(cwd, args[i + 1] ?? '.'); i += 2; }
+    else if (/^--(git-dir|work-tree)=/.test(a)) { repoDirs.push(a.slice(a.indexOf('=') + 1)); i++; }
+    else if (a === '--git-dir' || a === '--work-tree') { repoDirs.push(args[i + 1] ?? '.'); i += 2; }
+    else if (a === '-c' || GIT_VALUE_GLOBALS.has(a)) i += 2;
     else i++;
   }
   const sub = args[i];
   const rest = args.slice(i + 1);
+  if (ctx.teamRoot || ctx.workspaceError) {
+    const targets = [cwd, ...repoDirs.map((d) => resolve(cwd, d)), ...(ctx.gitEnvDirs ?? []).map((d) => resolve(ctx.cwd, d))];
+    if (ctx.teamRoot && sub && writtenPaths(sub, rest).some((p) => contains(ctx.teamRoot, resolve(cwd, p)))) {
+      return deny('team-root', `\`git ${sub}\` would write into the team root (${ctx.teamRoot}).`,
+        'In Workspace Mode the AI Technical Team is read-only framework infrastructure.', 'write the output inside the project or the task\'s scratch folder.');
+    }
+    if (sub && !readOnly(sub, rest) && ctx.workspaceError) {
+      return deny('workspace-config', `\`git ${sub}\` while WORKSPACE.json cannot be read (${ctx.workspaceError}).`,
+        'The team root is unknown, so its read-only protection cannot be applied.', 'fix WORKSPACE.json first (the preflight names the problem), then retry.');
+    }
+    if (ctx.teamRoot && sub && !readOnly(sub, rest) && targets.some((t) => contains(ctx.teamRoot, t))) {
+      return deny(
+        'team-root',
+        `\`git ${sub}\` on the team root (${ctx.teamRoot}).`,
+        'In Workspace Mode the AI Technical Team is read-only framework infrastructure; project tasks run git in the project root (WORKSPACE.json project_root).',
+        `run it in the project: \`git -C <project_root> ${sub} …\`. Framework changes are made by opening Claude Code in the team repository itself.`,
+      );
+    }
+  }
   if (sub === 'push') return pushDecision(rest, ctx, cwd);
   return destructiveDecision(sub, rest);
 }
@@ -393,6 +449,8 @@ function segmentDecision(rawTokens, ctx, shell, depth) {
   let i = 0;
   while (i < t.length) {
     const w = t[i];
+    const gitEnv = /^GIT_(DIR|WORK_TREE)=(.*)$/.exec(w);
+    if (gitEnv) ctx = { ...ctx, gitEnvDirs: [...(ctx.gitEnvDirs ?? []), gitEnv[2]] };
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || LEADING_WORDS.has(w)) { i++; continue; }
     const wrapper = commandName(w);
     const valueOpts = Object.hasOwn(WRAPPERS, wrapper) ? WRAPPERS[wrapper] : null;
@@ -514,7 +572,7 @@ export function evaluate(command, options = {}) {
 
 // ───────────────────────── 5. hook entry point ─────────────────────────
 
-function main() {
+async function main() {
   let input;
   try {
     input = JSON.parse(readFileSync(0, 'utf8'));
@@ -526,9 +584,23 @@ function main() {
   const command = input?.tool_input?.command;
   if (typeof command !== 'string' || !['Bash', 'PowerShell'].includes(input.tool_name)) return;
 
+  // Workspace Mode: the team root is read-only. Loaded lazily so a failure here never disables the rules above.
+  // The runtime this hook belongs to is found first (context.mjs locateRoot), so a session whose
+  // cwd moved into the project still sees its workspace.
+  let teamRoot;
+  let workspaceError;
+  try {
+    const { tryContext } = await import('../tools/context.mjs');
+    const ws = tryContext({ cwd: input.cwd || process.cwd() });
+    if (ws.error) workspaceError = ws.error;
+    else if (ws.mode === 'workspace') teamRoot = ws.team_root;
+  } catch (err) {
+    process.stderr.write(`git-guard: workspace context unavailable (${err.message}); team-root protection is off for this command.\n`);
+  }
+
   let decision;
   try {
-    decision = evaluate(command, { cwd: input.cwd, shell: input.tool_name === 'PowerShell' ? 'powershell' : 'bash' });
+    decision = evaluate(command, { cwd: input.cwd, shell: input.tool_name === 'PowerShell' ? 'powershell' : 'bash', teamRoot, workspaceError });
   } catch (err) {
     // Fail closed only for git-shaped commands; a bug here must not block unrelated work.
     if (/\bgit\b/i.test(command)) {

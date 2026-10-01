@@ -18,6 +18,8 @@ explains it.
 | `security-engineer` | opus | review | `security` | handoff |
 | `senior-reviewer` | opus | review | HIGH; STANDARD with a review-requiring flag or uncertainty; mode `review` | handoff |
 
+"Writes" means paths inside the project root, plus each agent's **own** handoff
+(`handoffs/NN-<agent>.md`) and `scratch/`. In Workspace Mode nobody writes in the team root.
 "Writes" is enforced for the file tools by `write-guard`. Agents holding a shell could still write
 through it. That gap is closed by instruction, and is documented in `docs/enforcement.md`.
 

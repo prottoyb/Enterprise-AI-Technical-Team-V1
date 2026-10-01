@@ -165,6 +165,34 @@
     { "agent": "software-engineer", "file": "CLAUDE.md", "expect": "deny" },
     { "agent": null, "file": ".claude/rules/git.md", "expect": "ask" },
     { "agent": null, "file": ".engineering/tasks/BUG-001/TASK_REQUEST.md", "expect": "ask" },
-    { "agent": null, "file": ".engineering/tasks/BUG-001/LEDGER.md", "expect": "allow" }
-  ]
+    { "agent": null, "file": ".engineering/tasks/BUG-001/LEDGER.md", "expect": "allow" },
+    { "agent": "senior-reviewer", "file": ".engineering/tasks/BUG-001/handoffs/05-verifier.md", "expect": "deny" },
+    { "agent": null, "file": ".engineering/tasks/BUG-001/task.json", "expect": "deny" }
+  ],
+  "workspace": {
+    "$comment": "Workspace Mode decisions with separate roots (synthetic paths; the end-to-end versions are in tests/workspace.test.mjs).",
+    "roots": { "workspace_root": "/ws", "team_root": "/ws/Team", "project_root": "/ws/Source", "state_root": "/ws/.engineering", "task_request": "/ws/TASK_REQUEST.md" },
+    "write_scopes": [
+      { "agent": null, "file": "/ws/Team/.claude/rules/git.md", "expect": "deny" },
+      { "agent": "software-engineer", "file": "/ws/Team/scripts/install.mjs", "expect": "deny" },
+      { "agent": "software-engineer", "file": "/ws/Source/src/app.ts", "expect": "allow" },
+      { "agent": "software-engineer", "file": "/ws/notes.md", "expect": "deny" },
+      { "agent": "verifier", "file": "/ws/Source/tests/app.test.ts", "expect": "allow" },
+      { "agent": "verifier", "file": "/ws/Source/src/app.ts", "expect": "deny" },
+      { "agent": "senior-reviewer", "file": "/ws/Source/src/app.ts", "expect": "deny" },
+      { "agent": "senior-reviewer", "file": "/ws/.engineering/tasks/BUG-001/handoffs/04-senior-reviewer.md", "expect": "allow" },
+      { "agent": "architect", "file": "/ws/Source/docs/adr/0001-x.md", "expect": "allow" },
+      { "agent": null, "file": "/ws/WORKSPACE.json", "expect": "ask" },
+      { "agent": null, "file": "/ws/TASK_REQUEST.md", "expect": "ask" },
+      { "agent": null, "file": "/ws/.engineering/tasks/BUG-001/LEDGER.md", "expect": "allow" },
+      { "agent": null, "file": "/ws/Source/src/app.ts", "expect": "allow" }
+    ],
+    "git": [
+      { "command": "git -C Team commit -am tweak", "expect": "deny" },
+      { "command": "cd Team && git checkout -b hack", "expect": "deny" },
+      { "command": "git -C Team status", "expect": "allow" },
+      { "command": "git -C Source commit -m \"fix: save expense\"", "expect": "allow" },
+      { "command": "git -C Source push origin main", "expect": "deny" }
+    ]
+  }
 }

@@ -1,12 +1,54 @@
 // Shared helpers for the team's tools and hooks. Zero dependencies (Node >= 22).
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const TOOLS_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** Framework/project root: the directory that contains `.claude/`. */
+/** Runtime root: the directory that contains this `.claude/` (the project in Installed Mode, the workspace in Workspace Mode). */
 export const ROOT = resolve(TOOLS_DIR, '..', '..');
+
+export const sha256 = (data) => createHash('sha256').update(data).digest('hex');
+
+/** `git <args>` in `dir`: trimmed stdout, or null on any failure. Never throws. */
+export function git(dir, args, { trim = true } = {}) {
+  try {
+    const out = execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
+    return trim ? out.trim() : out;
+  } catch {
+    return null;
+  }
+}
+
+// ── paths: one canonical form so `D:\X`, `d:/x/` and symlinked temp dirs compare equal ──
+
+/** Absolute and symlink-resolved for the part that exists (a file about to be written need not exist). */
+export function canonical(p) {
+  let head = resolve(p);
+  const tail = [];
+  while (!existsSync(head)) {
+    const up = dirname(head);
+    if (up === head) break;
+    tail.unshift(basename(head));
+    head = up;
+  }
+  try { head = realpathSync.native(head); } catch { /* keep the resolved path */ }
+  return tail.length ? join(head, ...tail) : head;
+}
+
+/** `child` relative to `parent` in POSIX form ('' when equal), or null when it is outside. Case-insensitive on Windows. */
+export function relTo(parent, child) {
+  const rel = relative(canonical(parent), canonical(child));
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  return rel.split(sep).join('/');
+}
+
+const fold = (p) => (process.platform === 'win32' ? canonical(p).toLowerCase() : canonical(p));
+export const samePath = (a, b) => fold(a) === fold(b);
+/** True when `child` is `parent` or inside it. */
+export const contains = (parent, child) => relTo(parent, child) !== null;
 
 /** Where per-task records and cached context live in the project using the team. */
 export const WORK_DIR = '.engineering';
