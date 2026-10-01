@@ -1,128 +1,215 @@
 # Enterprise AI Technical Team
 
-A task-driven AI engineering team for [Claude Code](https://claude.com/claude-code). You give it a
-technical task: a bug, a feature, a client customisation, a migration, a failing pipeline, a code
-review. The team works out what expertise the task needs, investigates, implements the smallest
-correct change, verifies it independently, and hands you a report backed by evidence.
+A task-driven AI engineering team for [Claude Code](https://claude.com/claude-code). You describe a
+technical task once: a bug, a feature, a client customisation, a migration, a failing pipeline, a
+code review. The team works out what expertise the task needs, investigates, implements the
+smallest correct change, verifies it independently, and hands you a report backed by evidence.
 
-**What makes it different:**
+You do not orchestrate it. You write the request, give one instruction, and answer only the
+questions that genuinely need you.
 
-- **Only the agents a task needs.** A typo uses no specialist. An authentication fix gets a
-  security engineer and a senior reviewer. The decision is made by a deterministic, tested routing
-  policy, not by mood.
-- **Independent verification.** Above LOW risk, the agent that writes the code never has the final
-  word on whether it works. A separate verifier proves it, and for bug fixes shows the regression
-  test failing before the fix and passing after.
+---
+
+## What the Team Is
+
+- **An Engineering Lead** (your Claude Code session) that owns the task end to end: understanding
+  it, discovering the repository, assessing risk, routing, coordinating, checking the evidence and
+  reporting.
+- **Nine specialists** (subagents) that run **only when the task needs them**: an investigator,
+  a software engineer, an independent verifier, a senior reviewer, and security, database,
+  platform, architecture and design specialists. A typo uses none. An authentication fix gets a
+  security engineer and a senior reviewer. A deterministic, tested routing policy decides, not mood.
+- **Independent verification.** Above LOW risk, whoever writes the code never has the final word
+  on whether it works. A separate verifier proves it. For bug fixes it shows the regression test
+  failing before the fix and passing after.
 - **Evidence-gated completion.** "Complete" is a checked claim. A script refuses it unless the
-  required agents ran, every acceptance criterion has passing evidence, the reviews are clean and
-  approvals are recorded. A hook re-checks it before the lead ends its turn.
+  required agents ran, every acceptance criterion has passing evidence, the reviews are clean,
+  approvals are recorded, and the project's final diff can be proven from the task's exact base
+  commit. A hook re-checks it before the lead ends its turn.
 - **You stay in control of consequential actions.** Routine engineering is autonomous. Pushing,
   merging, production deploys and destructive data operations wait for you.
 
-It is stack-agnostic. It adapts to the repository it works in through automatic discovery.
+It is stack-agnostic. It adapts to the repository through automatic discovery.
 
 ---
 
-## Quick Start
+## Recommended: Workspace Mode
 
-**1. Install into your project** (Node ≥ 22 required):
+In Workspace Mode the team and your software live side by side, **separately**:
 
-```bash
-node scripts/install.mjs --target /path/to/your/repo
+- the **team** (this repository) is framework infrastructure, and stays read-only while it works;
+- the **project** (your repository) is the only thing it engineers;
+- your **task request** and the **task records** live beside them, not inside either.
+
+Why separate them? The team must never mistake its own files for your application: they must not
+appear in dependency discovery, test commands, routing decisions or the final diff. And a normal
+task must never be able to rewrite the framework that is supervising it. Workspace Mode makes both
+mechanical. (Installing the team inside your repository still works: see
+[Installed Mode](#installed-mode).)
+
+### Workspace Structure
+
+```
+Engineering-Workspace/             ← open Claude Code HERE (the workspace root)
+├── WORKSPACE.json                 which folder is the team, the project, the request, the state
+├── TASK_REQUEST.md                your task, in your words
+├── CLAUDE.md                      generated: loads the team into the session
+├── .claude/                       generated runtime (agents, rules, skills, hooks, tools) — do not edit
+├── .engineering/                  task records and cached repository context
+│   ├── context/repo-context.md
+│   └── tasks/BUG-001/             TASK_REQUEST.md (exact snapshot), task.json, LEDGER.md, handoffs/
+├── Enterprise-AI-Technical-Team/  the team: the authoritative framework source (read-only during tasks)
+└── Source/                        your software: a git repository (the project root)
 ```
 
-It copies the team into `.claude/`, imports it from your `CLAUDE.md`, merges its hooks into your
-settings, and never overwrites your own files. See [Adopting in a repository](#adopting-in-a-repository).
+`WORKSPACE.json` is the single source of truth for where things are; nothing is guessed from
+folder names:
 
-**2. Open Claude Code in your repository and describe the task in plain language:**
+```json
+{
+  "version": 1,
+  "team_root": "./Enterprise-AI-Technical-Team",
+  "project_root": "./Source",
+  "task_request": "./TASK_REQUEST.md",
+  "state_root": "./.engineering"
+}
+```
 
-> Users cannot edit an expense after creating it. The Save button does nothing. Find the problem,
-> fix it, test the fix, and don't change the database schema.
-
-Or write a task request (next section) and point the team at it:
-
-> Work on .engineering/tasks/BUG-001/TASK_REQUEST.md
-
-**3. Read the report.** It tells you:
-
-- what was found;
-- what changed;
-- the evidence;
-- what was not verified;
-- which approvals the team needs from you (for example, "push branch `fix/BUG-001-expense-edit`
-  and open a PR").
-
-The full record is in `.engineering/tasks/<ID>/`.
+Paths are relative to the workspace (absolute paths work too). The preflight refuses a workspace
+where the team and project are the same folder, one is inside the other, the project is not the
+top of a git repository with at least one commit, or the state would land inside either of them.
 
 ---
 
-## Giving the Team a Task
+## One-Time Setup
 
-Plain language always works. For anything non-trivial, a task request makes your intent
-unambiguous. The canonical template is [`templates/TASK_REQUEST.md`](templates/TASK_REQUEST.md).
-To create a task folder with a copy:
+Requirements: Node ≥ 22 and git on `PATH`, and Claude Code.
 
 ```bash
-node .claude/tools/task.mjs new BUG --title "Expense edit does not save"
+mkdir Engineering-Workspace
+cd Engineering-Workspace
+git clone <this repository> Enterprise-AI-Technical-Team
+git clone <your application> Source            # or copy/move an existing clone here
+node Enterprise-AI-Technical-Team/scripts/workspace.mjs init --project Source
 ```
 
-That creates `.engineering/tasks/BUG-001/` containing `TASK_REQUEST.md`, `LEDGER.md` and
-`handoffs/`. The task types are BUG, FEAT, CHG, CLIENT, REFACTOR, MAINT, DEP, PERF, SEC, DATA,
-INFRA, CI, MIG, INV, HOTFIX, REVIEW and DOCS.
+On Windows the same commands work in PowerShell, for example from `C:\Work\Engineering-Workspace`.
 
-### Quick Mode (what you'll normally use)
+`init` writes `WORKSPACE.json`, the workspace `CLAUDE.md`, the runtime in `.claude/`, a blank
+`TASK_REQUEST.md` and `.engineering/`, then runs the preflight. It **never writes into your
+project or the team**, never deletes anything, and never overwrites a file it did not create.
+Check the workspace at any time with:
 
-```markdown
-## TASK (required)
-What is wrong, or what needs to change?
-
-## GOAL (required)
-What does the correct result look like?
-
-## CONSTRAINTS (recommended)
-What must not change? ("none" is fine)
-
-## EVIDENCE (optional)
-Errors, logs, screenshots, reproduction steps, links, files.
+```bash
+node Enterprise-AI-Technical-Team/scripts/workspace.mjs doctor
 ```
 
-### Full Mode (complex or high-risk work)
+Keep the project **inside** the workspace folder, as above. A project elsewhere (`--project
+../my-app`, or an absolute path) is accepted and recorded in `WORKSPACE.json`, but Claude Code
+normally works only inside the directory it was opened in: start it with `claude --add-dir <path to
+the project>` (and the team) so its file tools can reach them. That layout is **not yet verified**
+in live runs. Your project may have uncommitted work in progress; the team records it at the start
+of each task and never touches it.
 
-The same file has an optional section for:
+---
 
-- task type and urgency;
-- business or client context;
-- current and expected behaviour;
-- reproduction steps and environment;
-- relevant files;
-- out-of-scope areas and acceptance criteria;
-- required testing;
-- security, data, compatibility, performance and deployment considerations;
-- **Authority**: whether the team may push the task branch and open a PR without asking, and what it
-  must not do.
+## Starting a New Engineering Task
 
-Fill only what helps. A completed example is in
+1. **Write the task** in `TASK_REQUEST.md` (replace the previous task's content). TASK and GOAL are
+   enough to start; success criteria and constraints make the result sharper.
+2. **Open Claude Code in the workspace root** (the folder with `WORKSPACE.json`).
+3. **Enter:**
+
+   > **Start the engineering team and execute TASK_REQUEST.md through verified completion.**
+
+4. **Let the Engineering Lead work.** It validates your request, creates the task record, captures
+   your project's exact starting commit, discovers the project, classifies the risk, brings in only
+   the specialists the task needs, investigates, implements on a branch, verifies independently,
+   reviews, and checks the evidence.
+5. **Answer only legitimate questions and approvals** (see [Human Approval](#human-approval)).
+6. **Read the final report.** The full record is in `.engineering/tasks/<ID>/`.
+
+You never need to say "invoke the investigator", "run the verifier", "create a ledger", "inspect
+git" or "review the diff". Those are the lead's decisions. Plain-language instructions also work
+("Users can't edit an expense; fix it and don't change the schema"): the lead records your words
+verbatim as the task's request.
+
+---
+
+## Task Request Guide
+
+The template is [`templates/TASK_REQUEST.md`](templates/TASK_REQUEST.md). A worked example is
 [`examples/BUG-001/TASK_REQUEST.md`](examples/BUG-001/TASK_REQUEST.md).
 
-### How the Team Treats Your Request
+| Section | | What to write |
+|---|---|---|
+| **TASK** | required | the problem, bug, requested change, client requirement or maintenance work |
+| **GOAL** | required | the outcome you want when the task is successfully finished |
+| **SUCCESS CRITERIA** | recommended | checkboxes that must be demonstrably true; the team must prove every one |
+| **CONSTRAINTS** | recommended | what must not change, what must be preserved, what is out of scope ("none" is fine) |
+| **EVIDENCE** | optional | errors, logs, screenshots, reproduction steps, files, routes, failing tests, environment |
+| **SOLUTION EXPECTATIONS / PREFERENCES** | optional | a preferred approach, technology or design: guidance, not a hard rule |
+| **ADVANCED** | optional | task type, context, current/expected behaviour, environment, components, out-of-scope areas, extra acceptance criteria, testing, security, data, compatibility, performance, deployment, and **Authority** (approval boundaries) |
 
-- Your objective, constraints, exclusions and approval boundaries are **authoritative**. The team
-  may refine them technically, but it never silently redefines the goal or drops a constraint. A
-  hook asks before anyone edits your `TASK_REQUEST.md`.
-- Missing details are filled from repository evidence first, and marked INFERRED.
-- The team asks you only when a gap changes correctness, scope, safety, an irreversible decision
-  or acceptance. Questions come in one batch, each with a recommended default, after the unblocked
-  work is done.
+A request this short is enough to begin:
+
+```markdown
+## TASK
+Users cannot edit an expense after creating it. The Save button does nothing.
+
+## GOAL
+Editing an expense should work correctly.
+
+## SUCCESS CRITERIA
+- [ ] Updated expense information is saved.
+- [ ] Existing expense creation still works.
+
+## CONSTRAINTS
+Do not change the database schema.
+```
+
+**How your request is treated:**
+
+- It is **authoritative and never rewritten**. At the start of the task it is validated and
+  snapshotted byte-for-byte into the task folder; the evidence gate fails the task if the snapshot
+  is edited.
+- Your **success criteria** become the task's `(HUMAN)` acceptance criteria and your
+  **constraints and exclusions** are quoted verbatim in the ledger. The gate refuses completion if
+  any of them is dropped. Criteria the team derives from the repository are marked `(INFERRED)`.
+- Your **solution preference** is guidance. If investigation shows it would not fix the root cause,
+  the team implements the technically correct approach (unless that breaks a constraint or needs
+  your approval) and explains the deviation in the report. Write it under CONSTRAINTS if it is a
+  hard requirement.
+- Gaps are filled from the repository first. The lead asks you only when a gap materially changes
+  correctness, safety, product meaning, scope, acceptance or an irreversible decision, in one batch,
+  each question with a recommended default.
 
 ---
 
-## How It Works
+## What Happens Internally
+
+```
+Your request
+ → Preflight          workspace valid? team ≠ project? project a git repo? runtime present? request valid?
+ → Task creation      task ID, exact request snapshot, base commit + pre-existing changes (task.json), ledger
+ → Discovery          the project only → .engineering/context/repo-context.md (cached per commit)
+ → Risk classification  mode · risk · flags · uncertainty
+ → Agent routing      route.mjs: only the agents the policy requires
+ → Investigation      if the cause is unknown
+ → Implementation     on a task branch in the project
+ → Verification       independent; regression test fails before, passes after
+ → Review             when risk or flags require it
+ → Evidence gate      task.mjs check: agents, criteria, reviews, approvals, and the project diff from the base commit
+ → Final report
+```
+
+The deterministic parts are scripts, not model reasoning: the preflight, task creation, request
+validation, git capture, discovery, routing policy, resume, and the evidence gate.
 
 ```
 You ──► Engineering Lead (the main Claude Code session) ───────────────────► Report
-          │ discover the repository once → .engineering/context/repo-context.md
-          │ classify: mode · risk · flags · uncertainty → route.mjs → plan
-          │ keep the ledger: objective, criteria, routing, evidence, reviews, status
+          │ task.mjs start → task record, base commit, discovery
+          │ classify → route.mjs → plan;  keep the ledger
           ▼
  diagnose ─► design ─► implement ─► verify ⟲ ─► review ─► evidence check ─► report
  investigator  architect      software-   verifier    security-engineer   task.mjs check
@@ -131,40 +218,16 @@ You ──► Engineering Lead (the main Claude Code session) ──────
                product-designer
 ```
 
-- **The Engineering Lead is the main session.** It owns the task, routes it, coordinates, keeps
-  the ledger and reports. It implements only LOW-risk work itself.
-- **Specialists are subagents, activated only when the plan requires them.** They never talk to
-  each other. Each gets a short packet (the task ID, the ledger path, the question), writes its
-  evidence to a handoff file, and returns about 150 words. This keeps context small and every
-  conclusion auditable.
-- **Steps that add no value are skipped**, with the reason recorded. A typo goes straight from
-  routing to a lead-made fix and a check.
-
-Details: [docs/architecture.md](docs/architecture.md).
-
-### The Team
-
-| Agent | Brought in when |
-|---|---|
-| Engineering Lead (main session) | always |
-| `investigator` | the cause is unknown: unexplained bugs, regressions, flaky tests, performance, CI/production-like failures |
-| `software-engineer` | every STANDARD/HIGH change |
-| `verifier` | every STANDARD/HIGH change: independent verification |
-| `senior-reviewer` | every HIGH task; STANDARD tasks with an unknown root cause, API or dependency change, broad or client-specific change, performance, significant UI |
-| `architect` | system boundaries, shared or public contracts, new services or datastores |
-| `security-engineer` | auth, permissions, secrets, untrusted input, uploads, webhooks, personal or payment data, vulnerable dependencies |
-| `database-engineer` | schema changes, migrations, destructive data changes |
-| `platform-engineer` | CI/CD, builds, containers, deployment, infrastructure, production config |
-| `product-designer` | new screens or flows, redesigns, design-system changes |
-
-Responsibilities and limits: [docs/agents.md](docs/agents.md).
+Specialists never talk to each other. Each gets a short packet (task ID, project root, ledger path,
+question, writable scope), writes its evidence to its own handoff file, and returns about 150
+words. Details: [docs/architecture.md](docs/architecture.md).
 
 ---
 
-## How Routing Works
+## Agent Routing
 
-The lead classifies the task on four axes. The router
-(`node .claude/tools/route.mjs`) then applies the policy in
+Not every agent runs. The lead classifies the task; the router
+(`node .claude/tools/route.mjs`) applies the policy in
 [`.claude/tools/routing-policy.json`](.claude/tools/routing-policy.json):
 
 | Axis | Decides | Values |
@@ -174,18 +237,11 @@ The lead classifies the task on four axes. The router
 | Flags | which specialists | security, data-schema, infrastructure, ui-significant, api-change, … |
 | Uncertainty | extra steps first | root-cause-unknown → investigator; requirements-ambiguous → clarify |
 
-Three safety nets stop under-classification:
-
-1. **Risk only escalates.** A security, data, architecture or production flag makes the task HIGH.
-2. **File paths are mandatory evidence.** Touching `src/auth/*`, `migrations/*`, `Dockerfile` or
-   `.github/workflows/*` applies the matching flag, whatever the request says.
-3. **The final diff is re-checked.** When the task completes, the gate re-routes using the files
-   actually changed.
-
-Words in your request only *suggest* flags. The lead accepts or rejects each one with a reason,
-because "don't change the schema" mentions a schema without asking for a change.
-
-Examples, taken from the evaluation suite:
+Three safety nets stop under-classification: risk only escalates (a security, data, architecture or
+production flag makes a task HIGH); file paths are mandatory evidence (touching `src/auth/*`,
+`migrations/*`, `Dockerfile` or `.github/workflows/*` applies the matching flag); and the final
+diff is re-checked at completion. Words in your request only *suggest* flags, because "don't change
+the schema" mentions a schema without asking for a change.
 
 | Task | Agents activated |
 |---|---|
@@ -197,99 +253,164 @@ Examples, taken from the evaluation suite:
 | Containers crash-loop in production after deploy | platform-engineer (diagnoses), software-engineer, verifier, senior-reviewer, plus **your approval before deploying** |
 | Review PR 42 (session handling) | security-engineer, senior-reviewer |
 
-The full table and the risk model are in [docs/risk-and-approvals.md](docs/risk-and-approvals.md).
+| Agent | Brought in when |
+|---|---|
+| `investigator` | the cause is unknown: unexplained bugs, regressions, flaky tests, performance, CI/production-like failures |
+| `software-engineer` | every STANDARD/HIGH change |
+| `verifier` | every STANDARD/HIGH change: independent verification |
+| `senior-reviewer` | every HIGH task; STANDARD tasks with an unknown root cause, API or dependency change, broad or client-specific change, performance, significant UI |
+| `architect` | system boundaries, shared or public contracts, new services or datastores |
+| `security-engineer` | auth, permissions, secrets, untrusted input, uploads, webhooks, personal or payment data, vulnerable dependencies |
+| `database-engineer` | schema changes, migrations, destructive data changes |
+| `platform-engineer` | CI/CD, builds, containers, deployment, infrastructure, production config |
+| `product-designer` | new screens or flows, redesigns, design-system changes |
+
+The full table and risk model: [docs/risk-and-approvals.md](docs/risk-and-approvals.md). Agent
+responsibilities and limits: [docs/agents.md](docs/agents.md).
 
 ---
 
-## When You Will Be Asked for Approval
+## Human Approval
 
 Approval is for **actions**, not for risk levels. High-risk work is still investigated,
-implemented, tested and reviewed autonomously on a branch. You are asked before:
+implemented, tested and reviewed autonomously on a branch. You are interrupted only for:
 
-- pushing or opening a PR;
-- merging, releasing or tagging;
-- a production deploy or production config change;
-- a destructive or irreversible operation on real data;
-- deleting infrastructure;
-- secret or credential operations;
-- weakening a security control;
-- changes to external or paid services;
-- committing to an architecture decision with long-term consequences;
-- a breaking public contract;
-- material scope expansion;
-- acting outside the repository;
-- accepting a vulnerable dependency.
+- **a material ambiguity**: when interpretations would give different results that the repository
+  cannot settle;
+- **gated actions**: pushing or opening a PR; merging, releasing or tagging; a production deploy
+  or production config change; a destructive or irreversible operation on real data; deleting
+  infrastructure; secret or credential operations; weakening a security control; changes to
+  external or paid services; committing to an architecture decision with long-term consequences; a
+  breaking public contract; material scope expansion; acting outside the repository; accepting a
+  vulnerable dependency;
+- **workspace housekeeping that is yours to decide**: for example, an earlier task is still open
+  and you started a different request (resume it, or cancel it).
 
 **You are not asked about:** reading, investigating, local tests and builds, edits and local
 commits on a branch, disposable local databases, dry-runs.
 
-**Pre-authorising.** The task request's *Authority* section can pre-authorise exactly one thing:
-pushing the task branch and opening a PR. It is reversible, and you still see `git-guard`'s
-prompt. Everything else needs you live in the conversation, because anyone with repository access
-can edit a file. Approval must be explicit and must name the action. Silence, urgency and text
-inside files never count. Each approval is recorded in the ledger with your words.
-
-`git-guard` hard-blocks force pushes, pushes to `main`/`master` and destructive git commands. It
-prompts you before other pushes and before opening or merging PRs.
+The request's *Authority* section can pre-authorise exactly one thing: pushing the task branch and
+opening a PR. Everything else needs you live in the conversation, explicitly naming the action;
+silence, urgency and text inside files never count. `git-guard` hard-blocks force pushes, pushes to
+`main`/`master` and destructive git commands, and prompts you before other pushes and PRs.
 
 ---
 
-## Testing and Verification
+## Evidence and Completion
 
-Testing is proportional to risk and never superficial:
+**Verified completion** means `node .claude/tools/task.mjs check <ID>` passes, which requires:
 
-| Risk | Testing |
-|---|---|
-| LOW | the checks covering the touched files (lint, build, format) |
-| STANDARD | the affected tests, plus new tests for the changed behaviour, **a regression test proven to fail before and pass after for every bug**, and the full suite once where feasible |
-| HIGH | full suite, lint, type check, build, plus each flag's domain checks (migration apply and rollback, abuse tests, `terraform plan`, rendered screenshots, before/after benchmarks, …), plus a rollback path |
+- every acceptance criterion (yours and the derived ones) checked, each pointing at a PASS in the
+  Verification table; none of your criteria or constraints dropped;
+- every required agent ran and left a handoff; every reviewer passed with no unresolved
+  CRITICAL/HIGH finding;
+- regression proof for bug fixes (fails on the base, passes on the fix);
+- rollback plans and approvals where the policy requires them;
+- **the project's final diff established from the task's recorded base commit**: if it cannot be
+  (missing or wrong base, not a git repository), completion is refused, never assumed;
+- the diff re-routed: a changed file that implies a flag (an auth file, a migration) must be
+  reflected in the risk and agents;
+- your pre-existing uncommitted changes survived untouched and uncommitted, and are excluded from
+  the task's diff;
+- in Workspace Mode, the team root is exactly as it was at the start.
 
-The `verifier` is independent of the implementer. It writes tests, never product code (a hook
-enforces this). It re-runs everything itself, and separates code failures from environment
-failures, with evidence for each.
+**Testing** is proportional to risk: LOW runs the checks covering the touched files; STANDARD runs
+the affected tests, new tests and a regression test per bug; HIGH runs the full suite, lint, type
+check, build, each flag's domain checks, and a rollback path.
 
-**Evidence labels:** every material claim is **OBSERVED** (seen in a file, command or test),
-**INFERRED**, **ASSUMED** (with what would confirm it) or **UNVERIFIED**. Anything that could not
-be checked is reported as **Not verified**.
+**Evidence labels:** every material claim is **OBSERVED**, **INFERRED**, **ASSUMED** (with what
+would confirm it) or **UNVERIFIED**. Anything not checked is reported as **Not verified**.
 
-**The completion gate:** `node .claude/tools/task.mjs check <ID>` must pass before a task is
-reported Complete. The standard is in [docs/verification.md](docs/verification.md).
-
-**Failures are bounded:**
-
-- after a failed verification the evidence goes back to the implementer, for at most 2 cycles;
-- on the 3rd failure the lead re-plans, bringing in the investigator if the failure is not
-  understood;
-- on the 4th, the task stops and comes to you with the evidence.
-
----
-
-## Reading the Final Report
-
-```
-## Task                     what you asked for
-## Root Cause / Requirement what was found, with evidence labels
-## Changes / Files          what changed and where
-## Verification             checks and results (before/after proof for bugs)
-## Review                   reviewer verdicts and notable findings
-## Risks / Limitations      Not verified items, follow-ups, residual risk
-## Approvals needed         what the team is waiting for you to allow
-## Status                   Complete | Partially complete | Blocked
-```
+**Failures are bounded:** after a failed verification the evidence goes back to the implementer (at
+most 2 cycles); on the 3rd the lead re-plans; on the 4th the task stops as Blocked and comes to you.
 
 | Status | Meaning |
 |---|---|
-| **Complete** | every acceptance criterion has passing evidence, the reviews are clean, and the gate passed |
+| **Complete** | every criterion has passing evidence, the reviews are clean, the gate passed |
 | **Partially complete** | done, but something is disclosed as not verified or deferred; read Risks / Limitations |
-| **Blocked** | stopped on a missing approval, a missing answer, or the retry budget; the report says exactly what is needed |
+| **Blocked** | waiting on you: a missing approval or answer, or the retry budget ran out |
 
-Report length scales with the task: a few lines for a typo, every section for a HIGH-risk change.
-A worked example is in [examples/BUG-001/](examples/BUG-001/): the request, the ledger and all six
-handoffs, including one failed verification that was corrected.
+The report:
+
+```
+## Task · ## Root Cause / Requirement · ## Changes (and any deviation from your suggested approach)
+## Files · ## Verification · ## Review · ## Risks / Limitations · ## Approvals needed · ## Status
+```
+
+The standard in full: [docs/verification.md](docs/verification.md). A worked example with all six
+handoffs, including a failed verification that was corrected: [examples/BUG-001/](examples/BUG-001/).
 
 ---
 
-## Adopting in a Repository
+## Resuming a Task
+
+Closing the terminal, restarting the computer, a usage limit, a crash or an interruption loses
+nothing that matters: the task's state is in files, not in the conversation.
+
+Open Claude Code in the workspace root again and give **the same start prompt**. `task.mjs start`
+sees an open task (`in-progress` or `blocked`) for the same request and **resumes** it instead of
+creating a new one. It prints where the task stands (routing, handoffs so far, files changed since
+the base commit, and the next step) and the lead continues from the ledger and handoffs, never
+from memory. To look without starting anything:
+
+```bash
+node .claude/tools/task.mjs status
+```
+
+## Starting the Next Task
+
+When the report says **Complete** or **Partially complete**, the task is closed. Replace the
+content of `TASK_REQUEST.md` with the next task and give the start prompt again. A new task with a
+new ID is created.
+
+- A **closed task is never resumed**. Starting with an identical request refuses, rather than
+  silently re-running it (the lead runs it again only if you ask).
+- **One task is open at a time.** If an earlier task is still open (in progress or blocked) and the
+  request has changed, the lead asks you which it is: an amendment to the open task (it continues,
+  and records your amendment in its ledger; the original snapshot stays as submitted), or a new task
+  (the open one is cancelled first). To cancel it yourself:
+  ```bash
+  node .claude/tools/task.mjs cancel BUG-001 --reason "superseded by BUG-002"
+  ```
+- Each task's diff is measured from the commit checked out in the project when it began. Before
+  the next task, make sure the previous task's work is committed on its branch (pushing or merging
+  it needs your approval), and check out the branch the next task should start from. Uncommitted
+  changes left in the project count as pre-existing changes for the next task and are protected as
+  yours.
+
+---
+
+## Updating the AI Team
+
+The team folder is the **authoritative source**. The workspace's `.claude/` and `CLAUDE.md` are a
+**generated runtime** copied from it (Claude Code only discovers agents, skills, rules and hooks
+under the session's own `.claude/`), with hashes recorded in
+`.claude/engineering-team.manifest.json`.
+
+To update the team (for example after pulling a new version):
+
+```bash
+git -C Enterprise-AI-Technical-Team pull
+node Enterprise-AI-Technical-Team/scripts/workspace.mjs update
+```
+
+`update` refreshes every runtime file you have not edited and reports the rest as conflicts. The
+preflight warns when the runtime has drifted: a runtime file edited in the workspace (that edit is
+not the framework, and it is not carried forward), or a team source newer than the runtime.
+
+Changing the framework itself is **framework development**, not a normal task: open Claude Code in
+the team repository, whose own `CLAUDE.md` and `.claude/` govern it, and work on it as a project.
+Governance files there still need your explicit approval of each change. In
+a workspace, the team root is read-only by design: hooks deny writes and non-read-only git inside
+it, and the evidence gate fails any task during which the team root or the workspace runtime
+changed. So update the team between tasks, never while one is open.
+
+---
+
+## Installed Mode
+
+The alternative: install the team **inside** your repository. There is no `WORKSPACE.json`; the
+repository is the project, and task state lives in its `.engineering/`.
 
 ```bash
 node scripts/install.mjs --target /path/to/repo --dry-run   # show what would happen
@@ -297,35 +418,38 @@ node scripts/install.mjs --target /path/to/repo             # install
 node scripts/install.mjs --target /path/to/repo --update    # later: refresh files you haven't modified
 ```
 
-The installer does the following:
+The installer:
 
-- It copies `agents`, `rules`, `skills`, `hooks`, `tools` and `templates` into `.claude/`, and this
-  `CLAUDE.md` to `.claude/engineering-team.md`.
-- It **imports** the team from your `CLAUDE.md` (`@.claude/engineering-team.md`), creating the
-  file if you have none. Your own project instructions stay yours, and they take precedence on
-  project conventions.
-- It merges the hooks into `.claude/settings.json`, keeping your existing hooks and settings.
-- It git-ignores the caches and scratch folders. Task ledgers and handoffs are meant to be
-  committed with the change as its audit trail.
-- It **never overwrites** a file that differs from the framework's. With `--update`, it refreshes
-  only files you haven't modified since install (tracked by hash). Everything else is reported as a
-  conflict.
+- copies `agents`, `rules`, `skills`, `hooks`, `tools` and `templates` into `.claude/`, and this
+  `CLAUDE.md` to `.claude/engineering-team.md`;
+- **imports** the team from your `CLAUDE.md` (`@.claude/engineering-team.md`), creating the file if
+  you have none; your own instructions stay yours;
+- merges the hooks into `.claude/settings.json`, keeping your existing hooks and settings;
+- git-ignores the caches and scratch folders (task ledgers and handoffs are meant to be committed
+  with the change as its audit trail);
+- **never overwrites** a file that differs from the framework's; with `--update`, it refreshes only
+  files you haven't modified since install (tracked by hash).
 
-**After installing:**
+**Commit the installation on its own before any application work.** The installer creates many
+files and never commits for you. If they are still uncommitted when a task starts, the task's diff
+would mix framework files with your change (the preflight warns about this):
 
-1. Run `node .claude/tools/discover.mjs` once, to check the repository context it detects:
-   languages, frameworks, test commands, CI, migrations, sensitive paths.
-2. Put project specifics (build and test commands, conventions, domain terms) in your own
-   `CLAUDE.md`. Discovery infers commands, but your word is better.
-3. If your canonical branch is neither `main` nor `master`, and the clone has no `origin/HEAD`, add
-   it to `DEFAULT_CANONICAL` in `.claude/hooks/git-guard.mjs`.
-4. For rendered UI checks on web apps, have Playwright available as a dev dependency.
-5. Turn on branch protection and CODEOWNERS review for `CLAUDE.md` and `.claude/` in your Git host.
-   They are the backstop for everything a local hook cannot see.
+```bash
+git add .claude CLAUDE.md .gitignore
+git commit -m "chore: install the AI technical team"
+```
 
-It works the same for greenfield and mature codebases, web, backend, mobile, data-heavy and cloud
-projects. Discovery adapts the team to the stack, and the path-scoped rules (database, frontend,
-infrastructure, API) load only when those files are touched.
+Then work exactly as in Workspace Mode: put the request in `TASK_REQUEST.md` at the repository
+root, open Claude Code in the repository, and give the start prompt, or describe the task in plain
+language. The same start, resume, evidence gate and approvals apply; the project root is the
+repository.
+
+**After installing:** put project specifics (build and test commands, conventions, domain terms) in
+your own `CLAUDE.md`. If your canonical branch is neither `main` nor `master` and the clone has no
+`origin/HEAD`, add it to `DEFAULT_CANONICAL` in `.claude/hooks/git-guard.mjs`. For rendered UI
+checks, have Playwright available as a dev dependency. Turn on branch protection and CODEOWNERS
+review for `CLAUDE.md` and `.claude/` in your Git host: they are the backstop for everything a
+local hook cannot see.
 
 ---
 
@@ -333,21 +457,30 @@ infrastructure, API) load only when those files are touched.
 
 | Command | Purpose |
 |---|---|
-| `node .claude/tools/discover.mjs` | repository discovery → `.engineering/context/repo-context.md` |
-| `node .claude/tools/route.mjs --risk R --flags a,b --uncertainty u --mode m --paths p1,p2` | routing plan |
-| `node .claude/tools/route.mjs --table` | the routing table from the policy |
-| `node .claude/tools/task.mjs new <TYPE> --title "…"` | create a task folder |
-| `node .claude/tools/task.mjs request <ID>` | check a task request's required fields |
+| `node .claude/tools/task.mjs start --type <TYPE>` | preflight, adopt the request, create or resume the task, base commit, discovery |
+| `node .claude/tools/task.mjs start --type <TYPE> --text "…"` | the same, for a plain-language request recorded verbatim |
+| `node .claude/tools/task.mjs status` | tasks, and the resume packet of the open one |
+| `node .claude/tools/task.mjs cancel <ID> --reason "…"` | close an abandoned open task |
 | `node .claude/tools/task.mjs check <ID>` | the evidence gate for completion |
+| `node .claude/tools/task.mjs request` | check the task request's required fields |
 | `node .claude/tools/task.mjs retry <n>` | what to do after the n-th failed verification |
+| `node .claude/tools/context.mjs` · `context.mjs preflight` | the resolved roots · the workspace preflight |
+| `node .claude/tools/discover.mjs` | project discovery → `.engineering/context/repo-context.md` |
+| `node .claude/tools/route.mjs --risk R --flags a,b --uncertainty u --mode m --paths p1,p2` | routing plan (paths relative to the project root) |
+| `node .claude/tools/route.mjs --table` | the routing table from the policy |
 | `node .claude/tools/ui-capture.mjs --url … --routes …` | screenshots and automated UI checks (web) |
+| `node <team>/scripts/workspace.mjs init --project <path>` | create a workspace |
+| `node <team>/scripts/workspace.mjs update` · `workspace.mjs doctor` | refresh the runtime · run the preflight |
+
+Task types: BUG, FEAT, CHG, CLIENT, REFACTOR, MAINT, DEP, PERF, SEC, DATA, INFRA, CI, MIG, INV,
+HOTFIX, REVIEW, DOCS.
 
 **Framework maintenance** (in this repository):
 
 | Command | What it runs |
 |---|---|
-| `npm test` | unit tests for hooks, tools, installer and validator |
-| `npm run evals` | the routing evaluation suite |
+| `npm test` | unit and integration tests: hooks, tools, installer, validator, Workspace Mode end to end |
+| `npm run evals` | the routing and safety evaluation suite |
 | `npm run validate` | framework consistency |
 | `npm run check` | all three |
 
@@ -356,25 +489,23 @@ infrastructure, API) load only when those files are touched.
 ## Repository Structure
 
 ```
-CLAUDE.md                     the lead's operating contract: hard limits, routing, approvals, evidence, completion
+CLAUDE.md                     the lead's operating contract: hard limits, intake, workspace mode, routing, approvals, evidence
 .claude/
   agents/                     9 specialists (investigator … product-designer)
   rules/                      always loaded: engineering, testing, security, git, handoffs
                               path-scoped: database, frontend, infrastructure, api
   skills/                     engineering-task (lifecycle), root-cause-analysis, verification, ui-review
   hooks/                      git-guard, write-guard, completion-guard
-  tools/                      routing-policy.json, route, task, discover, ui-capture, lib
+  tools/                      context (roots + preflight), task, route, discover, routing-policy.json, ui-capture, lib
   settings.json               hook wiring
 templates/                    TASK_REQUEST.md (human → team contract), LEDGER.md, HANDOFF.md
 examples/BUG-001/             a complete worked task
 docs/                         architecture, agents, risk-and-approvals, verification, cost-strategy,
                               enforcement, assessment (lessons from the previous teams)
-evals/                        scenarios.json + evaluate.mjs (deterministic routing and safety evaluation)
-tests/                        unit tests
-scripts/                      validate.mjs, install.mjs
+evals/                        scenarios.json + evaluate.mjs (deterministic), live-scenarios.md (live Claude Code runs)
+tests/                        unit and end-to-end tests
+scripts/                      workspace.mjs (Workspace Mode), install.mjs (Installed Mode), validate.mjs
 ```
-
----
 
 ## Validation and Evaluation
 
@@ -382,31 +513,34 @@ scripts/                      validate.mjs, install.mjs
 npm run check
 ```
 
-- **Evaluations** (`evals/`): 21 realistic scenarios, from a typo to a production hotfix, plus
-  unsafe git operations and write-scope attempts. Each scenario asserts the **exact** agent set
-  (unnecessary agents fail it just as missing ones do), the risk, the testing level, the approvals,
-  the gates, and that the evidence gate refuses completion without verification. The unsafe-command
-  and write-scope checks run against the real hooks.
-- **Validator** (`scripts/validate.mjs`) checks:
-  - schemas and cross-references between the policy, the agents, the hooks, `CLAUDE.md`, the docs
-    and the evals;
-  - that the docs routing table matches the policy;
-  - broken links;
-  - secrets, machine-specific paths and names left over from earlier team versions.
+- **Tests** (`tests/`) include `tests/workspace.test.mjs`, which builds real temporary workspaces
+  and drives the documented commands end to end: bootstrap, malformed workspaces, request adoption,
+  base capture, source-only discovery, resume and next task, the final-diff gate, pre-existing
+  changes, team-root protection, agent write scopes and Installed Mode.
+- **Evaluations** (`evals/`): realistic scenarios from a typo to a production hotfix, plus unsafe
+  git operations and write-scope attempts. Each asserts the **exact** agent set, the risk, the
+  testing level, the approvals and gates, and that the evidence gate refuses completion without
+  verification. [`evals/live-scenarios.md`](evals/live-scenarios.md) describes the behavioural runs
+  for live Claude Code, which are not automated.
+- **Validator** (`scripts/validate.mjs`): schemas and cross-references between the policy, agents,
+  hooks, `CLAUDE.md`, docs and evals; that the README documents the start prompt and only
+  subcommands the tools implement; broken links; secrets, machine-specific paths and legacy names.
 
 What these prove, and what they don't: [docs/enforcement.md](docs/enforcement.md).
 
----
-
 ## Limitations
 
-- The deterministic evals prove the **policy, the gates and the hooks**. They do not prove that a
-  model classifies every real request correctly. That needs sampled live runs, which are described
-  in `docs/enforcement.md` but not automated here.
-- Hooks fail open if Node is missing. Shell-level file writes and git commands built by variable
-  expansion are not caught by the hooks (`docs/enforcement.md`, Known gaps).
-- The gate proves that evidence was **recorded**, not that it is **true**. Reviewers and the quoted
-  command output in handoffs are the check on that.
+- The deterministic tests prove the **tools, policy, gates and hooks**. They do not prove that a
+  model classifies every real request correctly or follows every instruction; that needs sampled
+  live runs ([`evals/live-scenarios.md`](evals/live-scenarios.md)).
+- Hooks cover the file-editing tools and recognisable git commands. Shell-level file writes are not
+  intercepted; at completion the gate detects their effects on the project (the diff), the team
+  root and the workspace runtime (fingerprints recorded at start), and a deleted start record. It
+  detects; it does not prevent. Hooks fail open if Node is missing.
+- The gate proves evidence was **recorded** and that the diff is real, not that every recorded test
+  result is **true**. Reviewers and the quoted command output in handoffs are the check on that.
+- One project per workspace for now. For several repositories, use one workspace each; the team
+  never guesses which repository to change.
 - Rendered UI capture is built for web apps. Other platforms use simulator screenshots, or report
   "Not verified".
 
@@ -414,7 +548,7 @@ What these prove, and what they don't: [docs/enforcement.md](docs/enforcement.md
 
 | Document | Contents |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | orchestration, lifecycle, communication, failure-mode protections, deviations from the brief |
+| [docs/architecture.md](docs/architecture.md) | orchestration, Workspace Mode, lifecycle, communication, failure-mode protections |
 | [docs/agents.md](docs/agents.md) | each agent: responsibilities, activation, limits |
 | [docs/risk-and-approvals.md](docs/risk-and-approvals.md) | risk model, routing table, approval model |
 | [docs/verification.md](docs/verification.md) | completion standard, evidence gate, evidence labels, report format |

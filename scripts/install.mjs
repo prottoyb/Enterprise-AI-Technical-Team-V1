@@ -12,39 +12,21 @@
  * Safety: never deletes; never overwrites a file that differs from ours unless --update is given
  * AND the file is unchanged since we installed it (tracked by hash in
  * .claude/engineering-team.manifest.json). Anything else is reported as a conflict to resolve by hand.
+ * It never commits: commit the installation yourself, separately, before starting application work.
+ *
+ * Workspace Mode (scripts/workspace.mjs) installs the same runtime into a workspace root instead.
  */
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { IMPORT_LINE, MANIFEST, runtimeFiles } from '../.claude/tools/context.mjs';
+import { sha256 as sha } from '../.claude/tools/lib.mjs';
 
 const FRAMEWORK = fileURLToPath(new URL('..', import.meta.url));
-const MANIFEST = '.claude/engineering-team.manifest.json';
-const IMPORT_LINE = '@.claude/engineering-team.md';
 const IGNORES = ['.engineering/context/', '.engineering/ui-review/', '.engineering/tasks/*/scratch/'];
 
-const sha = (buf) => createHash('sha256').update(buf).digest('hex');
-const posix = (p) => p.split(sep).join('/');
-
-function listFiles(dir) {
-  const out = [];
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) out.push(...listFiles(p)); else out.push(p);
-  }
-  return out;
-}
-
 /** [sourceAbs, destRel] pairs to install. */
-export function plannedFiles(framework = FRAMEWORK) {
-  const pairs = [];
-  for (const sub of ['agents', 'rules', 'skills', 'hooks', 'tools']) {
-    for (const f of listFiles(join(framework, '.claude', sub))) pairs.push([f, posix(relative(framework, f))]);
-  }
-  for (const f of listFiles(join(framework, 'templates'))) pairs.push([f, `.claude/templates/${posix(relative(join(framework, 'templates'), f))}`]);
-  pairs.push([join(framework, 'CLAUDE.md'), '.claude/engineering-team.md']);
-  return pairs;
-}
+export const plannedFiles = (framework = FRAMEWORK) => runtimeFiles(framework);
 
 export function mergeHooks(existing, ours) {
   const merged = structuredClone(existing ?? {});
@@ -66,7 +48,7 @@ export function mergeHooks(existing, ours) {
   return { merged, added };
 }
 
-export function install(targetArg, { dryRun = false, update = false, framework = FRAMEWORK } = {}) {
+export function install(targetArg, { dryRun = false, update = false, framework = FRAMEWORK, gitignore = true, workspace = false } = {}) {
   const target = resolve(targetArg);
   if (!existsSync(target) || !statSync(target).isDirectory()) throw new Error(`target ${target} is not a directory`);
   if (resolve(framework) === target) throw new Error('refusing to install the framework into itself');
@@ -116,17 +98,24 @@ export function install(targetArg, { dryRun = false, update = false, framework =
   }
 
   // .gitignore
-  const giPath = join(target, '.gitignore');
-  const gi = existsSync(giPath) ? readFileSync(giPath, 'utf8') : '';
-  const missing = IGNORES.filter((l) => !gi.split(/\r?\n/).includes(l));
-  if (missing.length) {
-    write('.gitignore', `${gi.replace(/\s*$/, '')}${gi ? '\n\n' : ''}# Engineering team caches and scratch (task ledgers and handoffs are kept)\n${missing.join('\n')}\n`);
-    report.updated.push(`.gitignore (+${missing.length} line(s))`);
+  if (gitignore) {
+    const giPath = join(target, '.gitignore');
+    const gi = existsSync(giPath) ? readFileSync(giPath, 'utf8') : '';
+    const missing = IGNORES.filter((l) => !gi.split(/\r?\n/).includes(l));
+    if (missing.length) {
+      write('.gitignore', `${gi.replace(/\s*$/, '')}${gi ? '\n\n' : ''}# Engineering team caches and scratch (task ledgers and handoffs are kept)\n${missing.join('\n')}\n`);
+      report.updated.push(`.gitignore (+${missing.length} line(s))`);
+    }
   }
 
   if (!dryRun) write(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
-  report.notes.push('Next: run `node .claude/tools/discover.mjs` in the target, and make sure Node >= 22 is on PATH (hooks fail open without it).');
-  if (report.conflicts.length) report.notes.push('Resolve the conflicts by hand; re-run with --update to refresh files you have not modified.');
+  if (!workspace) {
+    report.notes.push('Next: run `node .claude/tools/discover.mjs` in the target, and make sure Node >= 22 is on PATH (hooks fail open without it).');
+    if (report.created.length || report.updated.length) {
+      report.notes.push('IMPORTANT: commit the installation on its own before any application work, e.g. `git add .claude CLAUDE.md .gitignore && git commit -m "chore: install the AI technical team"`. Otherwise the first task\'s diff mixes framework files with application changes. (The installer never commits for you.)');
+    }
+  }
+  if (report.conflicts.length && !workspace) report.notes.push('Resolve the conflicts by hand; re-run with --update to refresh files you have not modified.');
   return report;
 }
 

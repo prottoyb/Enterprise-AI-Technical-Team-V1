@@ -2,11 +2,14 @@
 
 ## Start of Every Task
 
-Record the current branch, the `git status` and the canonical branch in the ledger (discovery shows
-all three). Existing uncommitted changes belong to the human:
+All git commands target the **project root** (in Workspace Mode: `git -C <project_root> …`; never
+the workspace or the team root). `task.mjs start` records the exact base commit (`git rev-parse
+HEAD`), the branch and every uncommitted change with its content hash in the task's `task.json`,
+and summarises them in the ledger's Context. The evidence gate diffs against that commit, never a
+branch name. Existing uncommitted changes belong to the human:
 
 - never discard, stash-drop, reset or overwrite them;
-- never commit them as part of your work;
+- never commit them as part of your work (the gate fails the task if you do, or if one is gone);
 - if they overlap the files you must change, stop and ask.
 
 ## Branches and Commits
@@ -47,7 +50,10 @@ Safe alternatives:
 
 ## Parallel Work
 
-Parallel implementers get `isolation: "worktree"` when the lead invokes them. A worktree starts
+In Workspace Mode, Claude Code's `isolation: "worktree"` isolates the workspace, not the project,
+and write scopes and the evidence gate cover only the configured project root, so implementers run
+sequentially there. In Installed Mode, parallel implementers get `isolation: "worktree"` when the
+lead invokes them. A worktree starts
 from the default branch, so the lead commits first and names the base revision in the packet. The
 engineer verifies it with `git merge-base --is-ancestor <base> HEAD`, and fast-forwards if needed.
 The lead owns merging parallel branches.

@@ -9,15 +9,21 @@ nobody re-scans what an earlier agent already established.
 A short message, never pasted file contents:
 
 ```
-Task: <ID> — ledger .engineering/tasks/<ID>/LEDGER.md (read Objective, Acceptance Criteria, Routing)
-Context: .engineering/context/repo-context.md
+Task: <ID> — ledger <state_root>/tasks/<ID>/LEDGER.md (read Objective, Acceptance Criteria, Routing)
+Project root: <path> — run every project command and all git here; file paths below are relative to it
+Context: <state_root>/context/repo-context.md
 Question: <the one thing this agent must establish or do>
-Inputs: <handoff paths from earlier agents, relevant file paths / line ranges, base ref>
+Inputs: <handoff paths from earlier agents, relevant file paths / line ranges, base commit SHA>
 Constraints: <quoted from the request, plus any scope limits for this step>
-Handoff: .engineering/tasks/<ID>/handoffs/<NN>-<agent>.md
+Writable scope: <e.g. "project files for this change" | "test files only" | "your handoff and scratch/ only">
+Handoff: <state_root>/tasks/<ID>/handoffs/<NN>-<agent>.md
 ```
 
-`NN` is the next two-digit sequence number in the task's `handoffs/` folder.
+`NN` is the next two-digit sequence number in the task's `handoffs/` folder. `task.mjs start`
+prints the roots; in Installed Mode the project root is the repository and `<state_root>` is
+`.engineering`. `write-guard` enforces the writable scope for the file tools: an agent may write
+only its own handoff (the file name contains its name) and `scratch/`, plus its project scope. In
+Workspace Mode the team root is never writable.
 
 ## Handoff file (agent → ledger folder)
 

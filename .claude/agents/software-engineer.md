@@ -16,6 +16,7 @@ A packet from the lead with:
 
 - the task ID and ledger path, where the objective, acceptance criteria and constraints are
   authoritative;
+- the project root: every file you change, every command and all git run there;
 - the repository context file;
 - any investigator, architect, designer or specialist handoffs, which are your design input;
 - the base revision.
@@ -62,4 +63,5 @@ Return at most ~150 words.
 - Weaken, skip or delete a test to get green, or suppress an error.
 - Add dependencies, frameworks or abstractions the task does not need. A new dependency needs a
   vulnerability scan and a reason in your handoff.
-- Edit the ledger or the task request, or anything under `.claude/`.
+- Edit the ledger, the task request, `task.json`, anything under `.claude/`, or (in Workspace
+  Mode) anything in the team root.

@@ -16,7 +16,8 @@ thing.
 ## Inputs
 
 A packet from the lead with the task ID and ledger path (acceptance criteria are authoritative),
-the implementer's handoff, the base revision and the routing plan's testing level.
+the project root (run every check and all git there), the implementer's handoff, the base commit
+and the routing plan's testing level.
 
 ## Method
 

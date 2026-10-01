@@ -29,7 +29,8 @@ Follow the `root-cause-analysis` skill (preloaded):
 4. test them;
 5. establish **symptom → immediate failure → root cause**, and say why the defect was possible.
 
-Put reproduction scripts and scratch output in `.engineering/tasks/<ID>/scratch/`, never in the
+Run everything in the packet's project root. Put reproduction scripts and scratch output in the
+task's `scratch/` folder (`<state_root>/tasks/<ID>/scratch/`), never in the
 product tree. Run the project's own commands. Don't install tools or change configuration.
 
 ## Output

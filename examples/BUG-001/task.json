@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "BUG-001",
+  "created_at": "2026-10-01T09:12:44.000Z",
+  "mode": "installed",
+  "request": {
+    "source": "TASK_REQUEST.md",
+    "sha256": "a98581e642901090137d8b6ff387cc03c1b4d0368f0d44b6f87e70ce98054410",
+    "snapshot": "TASK_REQUEST.md"
+  },
+  "project": {
+    "root": "..",
+    "base_commit": "5d0c3a91e7b24f6a8c1d9e0f2b3a4c5d6e7f8a9b",
+    "base_branch": "main",
+    "initial_changes": []
+  },
+  "team": null,
+  "runtime": null
+}

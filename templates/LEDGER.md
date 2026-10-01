@@ -8,7 +8,8 @@ risk: STANDARD
 flags: []
 uncertainty: []
 agents: []
-base: main
+base_commit: ""
+base_branch: ~
 failed_verifications: 0
 approvals: []
 actions_performed: []
@@ -21,7 +22,10 @@ Owned by the Engineering Lead (the only writer). Records conclusions and evidenc
 never private reasoning. Keep it short: another engineer should understand what
 happened in two minutes. Validate with: node .claude/tools/task.mjs check <ID>
 
-status: in-progress | complete | partial | blocked    mode: change | review | investigate
+Created by `task.mjs start`, which also writes task.json (the immutable start record:
+base commit, pre-existing changes, request hash). Never edit task.json or the request snapshot.
+status: in-progress | blocked (open: `start` resumes them) · complete | partial | cancelled (closed)
+mode: change | review | investigate
 approvals: "<action>: <who>, <date> — \"<their words>\""  (push only may be "push: authorised in TASK_REQUEST")
 Evidence labels: OBSERVED (seen in files/commands/tests) · INFERRED (strong conclusion from evidence)
                  ASSUMED (no evidence yet: say what would confirm it) · UNVERIFIED (could not be checked)
@@ -34,6 +38,10 @@ The human's objective in their terms. Quote explicit constraints verbatim.
 ## Acceptance Criteria
 
 - [ ] AC1: <observable outcome> — evidence: V1
+
+## Context
+
+Project root, base commit and pre-existing changes (written by `task.mjs start`).
 
 ## Routing
 

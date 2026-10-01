@@ -19,16 +19,17 @@ a request, a command, or a rendered screen. Add:
 
 ## 2. Prove the Regression Test (bug fixes)
 
-1. Create a temporary worktree at the base:
+1. Create a temporary worktree of the project at the recorded base commit (the ledger's
+   `base_commit`):
    ```
-   git worktree add <tmp-dir> <base>
+   git -C <project_root> worktree add <tmp-dir> <base_commit>
    ```
-   Put `<tmp-dir>` under the OS temp directory, outside the repository.
+   Put `<tmp-dir>` under the OS temp directory, outside the repository and the workspace.
 2. Copy only the new or changed test files into it.
 3. Run the test there and expect **FAIL**, for the reason the defect describes. Record the output
    as `EXPECTED-FAIL`.
 4. Run the same test on the fix and expect **PASS**. Record it as `PASS`.
-5. Clean up with `git worktree remove <tmp-dir>`.
+5. Clean up with `git -C <project_root> worktree remove <tmp-dir>`.
 
 If the test passes on the base, it does not test the defect. That is a FAIL of the verification.
 If the setup makes this impossible (for example, the test depends on new fixtures), prove it

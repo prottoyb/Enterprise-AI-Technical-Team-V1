@@ -1,6 +1,6 @@
 ---
 name: engineering-task
-description: The Engineering Lead's lifecycle for any technical task above LOW risk — bug, feature, change, client customisation, refactor, dependency upgrade, performance, security, database, infrastructure, CI, migration, hotfix, investigation or code review — from a TASK_REQUEST.md or a plain-language request to a verified, evidenced completion report. Use it whenever the user hands the team a technical task.
+description: The Engineering Lead's lifecycle for any technical task — bug, feature, change, client customisation, refactor, dependency upgrade, performance, security, database, infrastructure, CI, migration, hotfix, investigation or code review — from a TASK_REQUEST.md or a plain-language request to a verified, evidenced completion report, including resuming an interrupted task. Use it whenever the user hands the team a technical task, and whenever they say "Start the engineering team and execute TASK_REQUEST.md through verified completion" (LOW tasks then take the fast path after step 1).
 argument-hint: "[path to TASK_REQUEST.md, or the task in plain language]"
 ---
 
@@ -16,28 +16,39 @@ Intake → Context → Classify & Route → Criteria & Gates → Diagnose → De
 
 ## 1. Intake
 
-1. Find the request: the argument, a `TASK_REQUEST.md` the human names, or their plain-language
-   message.
-2. If there is a file, run `node .claude/tools/task.mjs request <path>` to check the required
-   fields.
-3. For STANDARD/HIGH work, create the record with
-   `node .claude/tools/task.mjs new <TYPE> --title "..."`. It creates
-   `.engineering/tasks/<ID>/` with `TASK_REQUEST.md`, `LEDGER.md` and `handoffs/`. For a
-   plain-language request, paste the human's words verbatim under TASK in the new
-   `TASK_REQUEST.md`. That is the only time you write to it (the hook will ask; that is expected).
-4. Write the ledger's Objective in the human's terms, quoting their constraints and exclusions
-   verbatim.
+1. Find the request: the argument, the configured `TASK_REQUEST.md` (Workspace Mode:
+   `WORKSPACE.json` names it; the human's generic prompt means this one), a file the human names,
+   or their plain-language message.
+2. Read it and pick the task type (BUG, FEAT, CHG, … — a "Task type:" line in the request is
+   used if you omit `--type`). Then run:
+   ```
+   node .claude/tools/task.mjs start --type <TYPE> [--request <file> | --text "<the human's words, verbatim>"]
+   ```
+   It preflights the workspace, validates the request (TASK and GOAL required), and either
+   **resumes** the open task for this same request or creates `<state_root>/tasks/<ID>/` with the
+   byte-exact request snapshot, `task.json` (base commit, pre-existing changes, request hash),
+   `LEDGER.md` and `handoffs/`, and runs discovery. It prints a startup packet: read it.
+3. If `start` refuses, act on the reason: an invalid workspace or request goes back to the human
+   with the exact error; another open task means asking the human whether to resume it or cancel it
+   (`task.mjs cancel <ID> --reason "…"`, only on their word); an identical, already-finished request
+   is never re-run unless the human says so (`--again`).
+4. If it resumed, continue from the packet's **Next** line: read the ledger and the handoffs it
+   references, re-invoke only the agents whose step is not done, and never repeat finished work.
+5. Complete the Objective the tool pre-filled. The human's constraints (quoted) and success
+   criteria (`(HUMAN)` acceptance criteria) must stay; the gate checks them.
 
 ## 2. Context
 
-1. Run `node .claude/tools/discover.mjs`, or reuse `.engineering/context/repo-context.md` if its
-   HEAD matches `git rev-parse --short HEAD`.
-2. Note the branch, canonical branch and pre-existing changes in the ledger. Pre-existing changes
-   are the human's (`.claude/rules/git.md`).
+1. Read `<state_root>/context/repo-context.md` (written by `start`, cached while HEAD is
+   unchanged). It describes the **project root only**. Re-run `discover.mjs --force` only if the
+   project's manifests changed during the task.
+2. The ledger's Context section holds the base commit, branch and pre-existing changes. Those
+   changes are the human's (`.claude/rules/git.md`).
 3. Read the project's own instructions (its CLAUDE.md, AGENTS.md, CONTRIBUTING) if discovery lists
    them. Project conventions win over generic habits.
-4. Locate the affected area with targeted search: entry points, callers, tests. Don't read the
-   whole repository.
+4. Locate the affected area with targeted search **inside the project root**: entry points,
+   callers, tests. Don't read the whole repository, and never treat the team root as application
+   code.
 
 ## 3. Classify and Route
 
@@ -69,7 +80,8 @@ Intake → Context → Classify & Route → Criteria & Gates → Diagnose → De
    the unblocked work (context, investigation) meanwhile.
 3. Gate `characterisation-tests-first`: tell the implementer to pin the current behaviour before
    changing it.
-4. Create the task branch (`.claude/rules/git.md`). Record `base:` in the ledger.
+4. Create the task branch in the project (`git -C <project_root> switch -c <prefix>/<ID>-<slug>`,
+   `.claude/rules/git.md`). The base commit is already recorded; never change `base_commit`.
 
 ## 5. Diagnose (if routed)
 
@@ -96,10 +108,11 @@ implementation. Continue independent work while you wait.
 
 - **LOW:** the lead makes the change.
 - **STANDARD/HIGH:** invoke `software-engineer`. Pass `model: "opus"` when the plan says so, for
-  HIGH. The packet names the ledger, the handoffs that are design input, the base and the testing
-  level.
+  HIGH. The packet names the project root, the ledger, the handoffs that are design input, the
+  base commit, the writable scope and the testing level.
 - **Parallel slices:** launch independent slices in one message, each with
-  `isolation: "worktree"`, after committing and naming the base revision. You merge them.
+  `isolation: "worktree"`, after committing and naming the base revision. You merge them. In
+  Workspace Mode run them sequentially instead (`.claude/rules/git.md` → Parallel Work).
 
 ## 8. Verify (bounded loop)
 
@@ -118,7 +131,7 @@ Never loop blindly through variations.
 ## 9. Review (if routed)
 
 Launch the review-phase agents in parallel: `security-engineer` and `senior-reviewer` on the diff
-against `base`. For `ui-significant` work, run the `ui-review` skill, which captures screenshots
+against `base_commit`. For `ui-significant` work, run the `ui-review` skill, which captures screenshots
 and gets the `product-designer` verdict.
 
 Apply fixes in **one correction pass** (through `software-engineer`), then re-verify. Re-invoke a
@@ -127,8 +140,9 @@ reviewer only if it reported an unresolved CRITICAL/HIGH. Disagreement between r
 
 ## 10. Evidence Check
 
-1. Inspect `git status` and `git diff <base>`. Only intended files changed; pre-existing changes
-   are untouched and uncommitted by you.
+1. Inspect `git -C <project_root> status` and `git -C <project_root> diff <base_commit>` (plus
+   untracked files). Only intended files changed; pre-existing changes are untouched and
+   uncommitted by you. The gate recomputes this diff and fails if it cannot be established.
 2. Complete the ledger:
    - Changes;
    - the Verification table, with IDs, commands and results, where regression proof shows as
@@ -149,7 +163,7 @@ a few lines for a small fix, all sections for HIGH work.
 ```
 ## Task          what was requested (one line)
 ## Root Cause / Requirement   what was found (evidence label)
-## Changes       what changed and why
+## Changes       what changed and why; any deviation from the human's suggested approach, and why
 ## Files         key files
 ## Verification  checks run → results (regression before/after for bugs)
 ## Review        reviewer verdicts and notable findings
